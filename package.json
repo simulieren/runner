@@ -1,7 +1,7 @@
 {
   "name": "@japa/runner",
   "description": "A simple yet powerful testing framework for Node.js",
-  "version": "5.4.0",
+  "version": "5.4.0-speed.1",
   "engines": {
     "node": ">=18.16.0"
   },
@@ -33,7 +33,10 @@
     "version": "npm run build",
     "prepublishOnly": "npm run build",
     "release": "release-it",
-    "quick:test": "node --import=@poppinss/ts-exec --enable-source-maps --test-reporter=spec --test tests/*.spec.ts"
+    "quick:test": "node --import=@poppinss/ts-exec --enable-source-maps --test-reporter=spec --test tests/*.spec.ts",
+    "bench:discovery": "node --import=@poppinss/ts-exec benchmarks/discovery.mjs",
+    "bench:runner": "node benchmarks/runner.mjs",
+    "bench:prepare": "node benchmarks/prepare.mjs"
   },
   "devDependencies": {
     "@adonisjs/eslint-config": "^3.0.0-next.9",

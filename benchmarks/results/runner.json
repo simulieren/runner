@@ -1,0 +1,2024 @@
+{
+  "node": "v24.19.0",
+  "fixtureFiles": 1066,
+  "warmups": 1,
+  "repetitions": 5,
+  "note": "Synthetic no-op/2ms async tests. No Adonis boot or external services.",
+  "results": [
+    {
+      "workload": "filtered",
+      "version": "5.3",
+      "entry": ".benchmarks/baseline-5.3/build/index.js",
+      "workers": 1,
+      "wall": {
+        "medianMs": 183.1857089999976,
+        "minMs": 136.43579099999988,
+        "maxMs": 252.6390839999949
+      },
+      "maxWorkerRssKiB": 92224
+    },
+    {
+      "workload": "filtered",
+      "version": "5.4",
+      "entry": ".benchmarks/baseline-5.4/build/index.js",
+      "workers": 1,
+      "wall": {
+        "medianMs": 210.88133299999936,
+        "minMs": 140.7399579999983,
+        "maxMs": 381.41658299999835
+      },
+      "maxWorkerRssKiB": 93056
+    },
+    {
+      "workload": "filtered",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 1,
+      "wall": {
+        "medianMs": 274.56483300000036,
+        "minMs": 117.76116699999693,
+        "maxMs": 340.12075000000186
+      },
+      "maxWorkerRssKiB": 86816
+    },
+    {
+      "workload": "noop",
+      "version": "5.3",
+      "entry": ".benchmarks/baseline-5.3/build/index.js",
+      "workers": 1,
+      "wall": {
+        "medianMs": 394.0842499999999,
+        "minMs": 240.08512500000143,
+        "maxMs": 489.66220799999974
+      },
+      "maxWorkerRssKiB": 130064
+    },
+    {
+      "workload": "noop",
+      "version": "5.4",
+      "entry": ".benchmarks/baseline-5.4/build/index.js",
+      "workers": 1,
+      "wall": {
+        "medianMs": 358.27187499999854,
+        "minMs": 235.01404099999854,
+        "maxMs": 513.9985830000005
+      },
+      "maxWorkerRssKiB": 129616
+    },
+    {
+      "workload": "noop",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 1,
+      "wall": {
+        "medianMs": 349.1296250000014,
+        "minMs": 224.7258750000001,
+        "maxMs": 567.7848329999997
+      },
+      "maxWorkerRssKiB": 126352
+    },
+    {
+      "workload": "async",
+      "version": "5.3",
+      "entry": ".benchmarks/baseline-5.3/build/index.js",
+      "workers": 1,
+      "wall": {
+        "medianMs": 2783.818792000002,
+        "minMs": 2753.2717919999996,
+        "maxMs": 3047.5240420000046
+      },
+      "maxWorkerRssKiB": 120752
+    },
+    {
+      "workload": "async",
+      "version": "5.4",
+      "entry": ".benchmarks/baseline-5.4/build/index.js",
+      "workers": 1,
+      "wall": {
+        "medianMs": 2865.432124999992,
+        "minMs": 2723.333166999997,
+        "maxMs": 3126.303749999999
+      },
+      "maxWorkerRssKiB": 120992
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 1,
+      "wall": {
+        "medianMs": 3089.1149589999986,
+        "minMs": 2835.2713750000003,
+        "maxMs": 3212.158209000001
+      },
+      "maxWorkerRssKiB": 117088
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 2,
+      "wall": {
+        "medianMs": 1577.2664170000062,
+        "minMs": 1468.9890000000014,
+        "maxMs": 1862.8705829999963
+      },
+      "maxWorkerRssKiB": 102128
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 4,
+      "wall": {
+        "medianMs": 1099.5024589999957,
+        "minMs": 838.7427500000013,
+        "maxMs": 1367.4604160000017
+      },
+      "maxWorkerRssKiB": 98560
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 6,
+      "wall": {
+        "medianMs": 1090.619292000003,
+        "minMs": 607.8757089999999,
+        "maxMs": 1260.585042000006
+      },
+      "maxWorkerRssKiB": 94480
+    }
+  ],
+  "samples": [
+    {
+      "workload": "filtered",
+      "version": "5.4",
+      "entry": ".benchmarks/baseline-5.4/build/index.js",
+      "workers": 1,
+      "round": 1,
+      "wallMs": 210.88133299999936,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1,
+          "executed": 1,
+          "failed": 0,
+          "importMs": 0.4847079999999835,
+          "moduleLoadMs": 79.288834,
+          "runMs": 91.33425000000001,
+          "executionMs": 6,
+          "maxRssKiB": 93056
+        }
+      ]
+    },
+    {
+      "workload": "filtered",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 1,
+      "round": 1,
+      "wallMs": 274.56483300000036,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1,
+          "executed": 1,
+          "failed": 0,
+          "importMs": 0.5631669999999929,
+          "moduleLoadMs": 99.953,
+          "runMs": 128.002875,
+          "executionMs": 9,
+          "maxRssKiB": 86816
+        }
+      ]
+    },
+    {
+      "workload": "noop",
+      "version": "5.3",
+      "entry": ".benchmarks/baseline-5.3/build/index.js",
+      "workers": 1,
+      "round": 1,
+      "wallMs": 489.66220799999974,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 182.59490699999967,
+          "moduleLoadMs": 94.042417,
+          "runMs": 327.212583,
+          "executionMs": 38,
+          "maxRssKiB": 130064
+        }
+      ]
+    },
+    {
+      "workload": "noop",
+      "version": "5.4",
+      "entry": ".benchmarks/baseline-5.4/build/index.js",
+      "workers": 1,
+      "round": 1,
+      "wallMs": 513.9985830000005,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 210.8257980000012,
+          "moduleLoadMs": 92.02366599999999,
+          "runMs": 367.69495900000004,
+          "executionMs": 53,
+          "maxRssKiB": 128960
+        }
+      ]
+    },
+    {
+      "workload": "noop",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 1,
+      "round": 1,
+      "wallMs": 567.7848329999997,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 275.72220299999975,
+          "moduleLoadMs": 110.02425,
+          "runMs": 399.933958,
+          "executionMs": 35,
+          "maxRssKiB": 125120
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "5.3",
+      "entry": ".benchmarks/baseline-5.3/build/index.js",
+      "workers": 1,
+      "round": 1,
+      "wallMs": 2753.2717919999996,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 119.5885930000002,
+          "moduleLoadMs": 70.501083,
+          "runMs": 2646.1766669999997,
+          "executionMs": 2476,
+          "maxRssKiB": 117152
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "5.4",
+      "entry": ".benchmarks/baseline-5.4/build/index.js",
+      "workers": 1,
+      "round": 1,
+      "wallMs": 2723.333166999997,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 108.52324000000011,
+          "moduleLoadMs": 61.460792,
+          "runMs": 2630.5759160000002,
+          "executionMs": 2476,
+          "maxRssKiB": 118016
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 1,
+      "round": 1,
+      "wallMs": 2835.2713750000003,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 115.02974600000032,
+          "moduleLoadMs": 64.822667,
+          "runMs": 2736.809083,
+          "executionMs": 2580,
+          "maxRssKiB": 115280
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 2,
+      "round": 1,
+      "wallMs": 1468.9890000000014,
+      "children": [
+        {
+          "current": 1,
+          "total": 2,
+          "imports": 533,
+          "executed": 533,
+          "failed": 0,
+          "importMs": 59.89150599999991,
+          "moduleLoadMs": 67.767458,
+          "runMs": 1363.7583339999999,
+          "executionMs": 1267,
+          "maxRssKiB": 99440
+        },
+        {
+          "current": 2,
+          "total": 2,
+          "imports": 533,
+          "executed": 533,
+          "failed": 0,
+          "importMs": 60.76245400000012,
+          "moduleLoadMs": 68.005,
+          "runMs": 1365.814875,
+          "executionMs": 1268,
+          "maxRssKiB": 99584
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 4,
+      "round": 1,
+      "wallMs": 838.7427500000013,
+      "children": [
+        {
+          "current": 1,
+          "total": 4,
+          "imports": 267,
+          "executed": 267,
+          "failed": 0,
+          "importMs": 34.13008699999986,
+          "moduleLoadMs": 62.701166,
+          "runMs": 727.314042,
+          "executionMs": 652,
+          "maxRssKiB": 96624
+        },
+        {
+          "current": 2,
+          "total": 4,
+          "imports": 267,
+          "executed": 267,
+          "failed": 0,
+          "importMs": 32.817463000000046,
+          "moduleLoadMs": 63.397334,
+          "runMs": 721.211583,
+          "executionMs": 648,
+          "maxRssKiB": 96208
+        },
+        {
+          "current": 3,
+          "total": 4,
+          "imports": 266,
+          "executed": 266,
+          "failed": 0,
+          "importMs": 33.49200700000016,
+          "moduleLoadMs": 63.442958000000004,
+          "runMs": 724.494333,
+          "executionMs": 650,
+          "maxRssKiB": 97248
+        },
+        {
+          "current": 4,
+          "total": 4,
+          "imports": 266,
+          "executed": 266,
+          "failed": 0,
+          "importMs": 33.92624599999992,
+          "moduleLoadMs": 64.20008299999999,
+          "runMs": 729.042334,
+          "executionMs": 655,
+          "maxRssKiB": 96560
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 6,
+      "round": 1,
+      "wallMs": 607.8757089999999,
+      "children": [
+        {
+          "current": 1,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 23.364871999999934,
+          "moduleLoadMs": 76.587542,
+          "runMs": 486.94904099999997,
+          "executionMs": 413,
+          "maxRssKiB": 92112
+        },
+        {
+          "current": 2,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 22.02467500000003,
+          "moduleLoadMs": 71.921166,
+          "runMs": 491.029792,
+          "executionMs": 418,
+          "maxRssKiB": 92368
+        },
+        {
+          "current": 3,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 22.108207000000192,
+          "moduleLoadMs": 73.586083,
+          "runMs": 488.099875,
+          "executionMs": 416,
+          "maxRssKiB": 91920
+        },
+        {
+          "current": 4,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 23.07016500000003,
+          "moduleLoadMs": 71.121417,
+          "runMs": 490.84512499999994,
+          "executionMs": 414,
+          "maxRssKiB": 91712
+        },
+        {
+          "current": 5,
+          "total": 6,
+          "imports": 177,
+          "executed": 177,
+          "failed": 0,
+          "importMs": 22.623088999999993,
+          "moduleLoadMs": 71.615292,
+          "runMs": 490.42999999999995,
+          "executionMs": 415,
+          "maxRssKiB": 92544
+        },
+        {
+          "current": 6,
+          "total": 6,
+          "imports": 177,
+          "executed": 177,
+          "failed": 0,
+          "importMs": 22.598036999999806,
+          "moduleLoadMs": 68.59591599999999,
+          "runMs": 486.814459,
+          "executionMs": 413,
+          "maxRssKiB": 92032
+        }
+      ]
+    },
+    {
+      "workload": "filtered",
+      "version": "5.3",
+      "entry": ".benchmarks/baseline-5.3/build/index.js",
+      "workers": 1,
+      "round": 1,
+      "wallMs": 136.43579099999988,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1,
+          "executed": 1,
+          "failed": 0,
+          "importMs": 0.4069590000000005,
+          "moduleLoadMs": 57.647499999999994,
+          "runMs": 44.60725000000001,
+          "executionMs": 2,
+          "maxRssKiB": 87728
+        }
+      ]
+    },
+    {
+      "workload": "filtered",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 1,
+      "round": 2,
+      "wallMs": 117.76116699999693,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1,
+          "executed": 1,
+          "failed": 0,
+          "importMs": 0.475915999999998,
+          "moduleLoadMs": 56.636291,
+          "runMs": 34.773375,
+          "executionMs": 1,
+          "maxRssKiB": 82480
+        }
+      ]
+    },
+    {
+      "workload": "noop",
+      "version": "5.3",
+      "entry": ".benchmarks/baseline-5.3/build/index.js",
+      "workers": 1,
+      "round": 2,
+      "wallMs": 240.08512500000143,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 92.76518800000025,
+          "moduleLoadMs": 57.02920900000001,
+          "runMs": 155.46295800000001,
+          "executionMs": 22,
+          "maxRssKiB": 115696
+        }
+      ]
+    },
+    {
+      "workload": "noop",
+      "version": "5.4",
+      "entry": ".benchmarks/baseline-5.4/build/index.js",
+      "workers": 1,
+      "round": 2,
+      "wallMs": 235.01404099999854,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 89.64116099999978,
+          "moduleLoadMs": 55.12125,
+          "runMs": 151.981792,
+          "executionMs": 22,
+          "maxRssKiB": 115232
+        }
+      ]
+    },
+    {
+      "workload": "noop",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 1,
+      "round": 2,
+      "wallMs": 224.7258750000001,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 86.96781100000008,
+          "moduleLoadMs": 56.086833,
+          "runMs": 140.993292,
+          "executionMs": 22,
+          "maxRssKiB": 122096
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "5.3",
+      "entry": ".benchmarks/baseline-5.3/build/index.js",
+      "workers": 1,
+      "round": 2,
+      "wallMs": 2783.818792000002,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 90.56949300000011,
+          "moduleLoadMs": 55.507625000000004,
+          "runMs": 2698.0586670000002,
+          "executionMs": 2567,
+          "maxRssKiB": 113808
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "5.4",
+      "entry": ".benchmarks/baseline-5.4/build/index.js",
+      "workers": 1,
+      "round": 2,
+      "wallMs": 2786.0568749999984,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 98.60517500000051,
+          "moduleLoadMs": 65.212666,
+          "runMs": 2682.9722500000003,
+          "executionMs": 2538,
+          "maxRssKiB": 116112
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 1,
+      "round": 2,
+      "wallMs": 2838.4512499999983,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 108.67659599999982,
+          "moduleLoadMs": 64.009958,
+          "runMs": 2743.319834,
+          "executionMs": 2597,
+          "maxRssKiB": 116208
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 2,
+      "round": 2,
+      "wallMs": 1491.8395420000015,
+      "children": [
+        {
+          "current": 1,
+          "total": 2,
+          "imports": 533,
+          "executed": 533,
+          "failed": 0,
+          "importMs": 60.71052699999997,
+          "moduleLoadMs": 63.521792000000005,
+          "runMs": 1397.5900000000001,
+          "executionMs": 1299,
+          "maxRssKiB": 100384
+        },
+        {
+          "current": 2,
+          "total": 2,
+          "imports": 533,
+          "executed": 533,
+          "failed": 0,
+          "importMs": 59.5476750000003,
+          "moduleLoadMs": 63.74408299999999,
+          "runMs": 1389.2103749999999,
+          "executionMs": 1291,
+          "maxRssKiB": 99696
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 4,
+      "round": 2,
+      "wallMs": 1099.5024589999957,
+      "children": [
+        {
+          "current": 1,
+          "total": 4,
+          "imports": 267,
+          "executed": 267,
+          "failed": 0,
+          "importMs": 135.54450900000035,
+          "moduleLoadMs": 85.51495800000001,
+          "runMs": 979.009333,
+          "executionMs": 666,
+          "maxRssKiB": 96832
+        },
+        {
+          "current": 2,
+          "total": 4,
+          "imports": 267,
+          "executed": 267,
+          "failed": 0,
+          "importMs": 109.04662500000018,
+          "moduleLoadMs": 70.260041,
+          "runMs": 961.783375,
+          "executionMs": 674,
+          "maxRssKiB": 96608
+        },
+        {
+          "current": 3,
+          "total": 4,
+          "imports": 266,
+          "executed": 266,
+          "failed": 0,
+          "importMs": 42.075426000000334,
+          "moduleLoadMs": 73.116875,
+          "runMs": 937.6272090000001,
+          "executionMs": 719,
+          "maxRssKiB": 98560
+        },
+        {
+          "current": 4,
+          "total": 4,
+          "imports": 266,
+          "executed": 266,
+          "failed": 0,
+          "importMs": 129.41357700000043,
+          "moduleLoadMs": 70.011458,
+          "runMs": 967.0897920000001,
+          "executionMs": 661,
+          "maxRssKiB": 96000
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 6,
+      "round": 2,
+      "wallMs": 733.9236250000031,
+      "children": [
+        {
+          "current": 1,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 90.59895900000024,
+          "moduleLoadMs": 92.88175,
+          "runMs": 586.590625,
+          "executionMs": 418,
+          "maxRssKiB": 93600
+        },
+        {
+          "current": 2,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 113.01436700000008,
+          "moduleLoadMs": 95.371,
+          "runMs": 602.599834,
+          "executionMs": 414,
+          "maxRssKiB": 93584
+        },
+        {
+          "current": 3,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 44.10904400000007,
+          "moduleLoadMs": 85.81087500000001,
+          "runMs": 556.8606249999999,
+          "executionMs": 441,
+          "maxRssKiB": 93696
+        },
+        {
+          "current": 4,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 67.9240400000005,
+          "moduleLoadMs": 99.429709,
+          "runMs": 600.733125,
+          "executionMs": 415,
+          "maxRssKiB": 93488
+        },
+        {
+          "current": 5,
+          "total": 6,
+          "imports": 177,
+          "executed": 177,
+          "failed": 0,
+          "importMs": 22.599093000000096,
+          "moduleLoadMs": 74.280334,
+          "runMs": 600.889833,
+          "executionMs": 497,
+          "maxRssKiB": 92768
+        },
+        {
+          "current": 6,
+          "total": 6,
+          "imports": 177,
+          "executed": 177,
+          "failed": 0,
+          "importMs": 77.36462299999994,
+          "moduleLoadMs": 89.06470800000001,
+          "runMs": 595.328084,
+          "executionMs": 417,
+          "maxRssKiB": 93984
+        }
+      ]
+    },
+    {
+      "workload": "filtered",
+      "version": "5.3",
+      "entry": ".benchmarks/baseline-5.3/build/index.js",
+      "workers": 1,
+      "round": 2,
+      "wallMs": 141.7728750000024,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1,
+          "executed": 1,
+          "failed": 0,
+          "importMs": 0.4499579999999952,
+          "moduleLoadMs": 62.872708,
+          "runMs": 50.067458,
+          "executionMs": 3,
+          "maxRssKiB": 89952
+        }
+      ]
+    },
+    {
+      "workload": "filtered",
+      "version": "5.4",
+      "entry": ".benchmarks/baseline-5.4/build/index.js",
+      "workers": 1,
+      "round": 2,
+      "wallMs": 140.7399579999983,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1,
+          "executed": 1,
+          "failed": 0,
+          "importMs": 0.4909580000000062,
+          "moduleLoadMs": 60.623082999999994,
+          "runMs": 50.25904200000001,
+          "executionMs": 2,
+          "maxRssKiB": 86832
+        }
+      ]
+    },
+    {
+      "workload": "noop",
+      "version": "5.3",
+      "entry": ".benchmarks/baseline-5.3/build/index.js",
+      "workers": 1,
+      "round": 3,
+      "wallMs": 270.2135419999977,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 104.23018499999958,
+          "moduleLoadMs": 66.813583,
+          "runMs": 173.98875,
+          "executionMs": 22,
+          "maxRssKiB": 118592
+        }
+      ]
+    },
+    {
+      "workload": "noop",
+      "version": "5.4",
+      "entry": ".benchmarks/baseline-5.4/build/index.js",
+      "workers": 1,
+      "round": 3,
+      "wallMs": 258.1069160000043,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 97.47475799999938,
+          "moduleLoadMs": 62.280333000000006,
+          "runMs": 166.111209,
+          "executionMs": 24,
+          "maxRssKiB": 127744
+        }
+      ]
+    },
+    {
+      "workload": "noop",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 1,
+      "round": 3,
+      "wallMs": 241.3049170000013,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 94.04175800000004,
+          "moduleLoadMs": 61.444874999999996,
+          "runMs": 150.717834,
+          "executionMs": 23,
+          "maxRssKiB": 124928
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "5.3",
+      "entry": ".benchmarks/baseline-5.3/build/index.js",
+      "workers": 1,
+      "round": 3,
+      "wallMs": 2779.899041000004,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 95.74929700000033,
+          "moduleLoadMs": 60.85124999999999,
+          "runMs": 2685.084,
+          "executionMs": 2544,
+          "maxRssKiB": 119248
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "5.4",
+      "entry": ".benchmarks/baseline-5.4/build/index.js",
+      "workers": 1,
+      "round": 3,
+      "wallMs": 3126.303749999999,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 166.62722099999868,
+          "moduleLoadMs": 91.702917,
+          "runMs": 2992.211458,
+          "executionMs": 2750,
+          "maxRssKiB": 120992
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 1,
+      "round": 3,
+      "wallMs": 3212.158209000001,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 135.75670399999981,
+          "moduleLoadMs": 78.12525,
+          "runMs": 3092.663583,
+          "executionMs": 2887,
+          "maxRssKiB": 117088
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 2,
+      "round": 3,
+      "wallMs": 1862.8705829999963,
+      "children": [
+        {
+          "current": 1,
+          "total": 2,
+          "imports": 533,
+          "executed": 533,
+          "failed": 0,
+          "importMs": 194.50762199999994,
+          "moduleLoadMs": 80.09200000000001,
+          "runMs": 1746.3206659999998,
+          "executionMs": 1470,
+          "maxRssKiB": 100544
+        },
+        {
+          "current": 2,
+          "total": 2,
+          "imports": 533,
+          "executed": 533,
+          "failed": 0,
+          "importMs": 186.5782460000005,
+          "moduleLoadMs": 79.183708,
+          "runMs": 1715.2877919999999,
+          "executionMs": 1461,
+          "maxRssKiB": 100336
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 4,
+      "round": 3,
+      "wallMs": 1157.6695830000026,
+      "children": [
+        {
+          "current": 1,
+          "total": 4,
+          "imports": 267,
+          "executed": 267,
+          "failed": 0,
+          "importMs": 83.94659099999967,
+          "moduleLoadMs": 114.412292,
+          "runMs": 978.8158330000001,
+          "executionMs": 706,
+          "maxRssKiB": 97344
+        },
+        {
+          "current": 2,
+          "total": 4,
+          "imports": 267,
+          "executed": 267,
+          "failed": 0,
+          "importMs": 122.72341999999986,
+          "moduleLoadMs": 92.44791599999999,
+          "runMs": 1026.885334,
+          "executionMs": 691,
+          "maxRssKiB": 96624
+        },
+        {
+          "current": 3,
+          "total": 4,
+          "imports": 266,
+          "executed": 266,
+          "failed": 0,
+          "importMs": 123.40892199999996,
+          "moduleLoadMs": 110.00325000000001,
+          "runMs": 1002.559917,
+          "executionMs": 686,
+          "maxRssKiB": 96688
+        },
+        {
+          "current": 4,
+          "total": 4,
+          "imports": 266,
+          "executed": 266,
+          "failed": 0,
+          "importMs": 88.30757999999992,
+          "moduleLoadMs": 80.947625,
+          "runMs": 1017.084209,
+          "executionMs": 723,
+          "maxRssKiB": 95680
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 6,
+      "round": 3,
+      "wallMs": 1207.636916000003,
+      "children": [
+        {
+          "current": 1,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 80.13346499999886,
+          "moduleLoadMs": 197.56704100000002,
+          "runMs": 967.971209,
+          "executionMs": 436,
+          "maxRssKiB": 93568
+        },
+        {
+          "current": 2,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 78.69571200000098,
+          "moduleLoadMs": 261.676125,
+          "runMs": 886.962792,
+          "executionMs": 445,
+          "maxRssKiB": 92592
+        },
+        {
+          "current": 3,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 69.26149600000042,
+          "moduleLoadMs": 262.20074999999997,
+          "runMs": 875.144542,
+          "executionMs": 447,
+          "maxRssKiB": 93856
+        },
+        {
+          "current": 4,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 83.20225499999992,
+          "moduleLoadMs": 265.2,
+          "runMs": 872.532958,
+          "executionMs": 446,
+          "maxRssKiB": 91472
+        },
+        {
+          "current": 5,
+          "total": 6,
+          "imports": 177,
+          "executed": 177,
+          "failed": 0,
+          "importMs": 51.52866499999982,
+          "moduleLoadMs": 205.503625,
+          "runMs": 948.7345,
+          "executionMs": 441,
+          "maxRssKiB": 92480
+        },
+        {
+          "current": 6,
+          "total": 6,
+          "imports": 177,
+          "executed": 177,
+          "failed": 0,
+          "importMs": 57.92308299999962,
+          "moduleLoadMs": 266.480083,
+          "runMs": 745.840625,
+          "executionMs": 536,
+          "maxRssKiB": 93296
+        }
+      ]
+    },
+    {
+      "workload": "filtered",
+      "version": "5.3",
+      "entry": ".benchmarks/baseline-5.3/build/index.js",
+      "workers": 1,
+      "round": 3,
+      "wallMs": 183.1857089999976,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1,
+          "executed": 1,
+          "failed": 0,
+          "importMs": 0.506292000000002,
+          "moduleLoadMs": 72.74716699999999,
+          "runMs": 77.47712500000002,
+          "executionMs": 4,
+          "maxRssKiB": 92224
+        }
+      ]
+    },
+    {
+      "workload": "filtered",
+      "version": "5.4",
+      "entry": ".benchmarks/baseline-5.4/build/index.js",
+      "workers": 1,
+      "round": 3,
+      "wallMs": 193.17641699999513,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1,
+          "executed": 1,
+          "failed": 0,
+          "importMs": 0.4860830000000078,
+          "moduleLoadMs": 73.184125,
+          "runMs": 86.94379199999999,
+          "executionMs": 5,
+          "maxRssKiB": 88336
+        }
+      ]
+    },
+    {
+      "workload": "filtered",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 1,
+      "round": 3,
+      "wallMs": 175.6139170000024,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1,
+          "executed": 1,
+          "failed": 0,
+          "importMs": 0.46112499999998136,
+          "moduleLoadMs": 75.837167,
+          "runMs": 67.672125,
+          "executionMs": 2,
+          "maxRssKiB": 85056
+        }
+      ]
+    },
+    {
+      "workload": "noop",
+      "version": "5.4",
+      "entry": ".benchmarks/baseline-5.4/build/index.js",
+      "workers": 1,
+      "round": 4,
+      "wallMs": 358.27187499999854,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 138.57380399999994,
+          "moduleLoadMs": 72.306708,
+          "runMs": 252.10475000000002,
+          "executionMs": 32,
+          "maxRssKiB": 129600
+        }
+      ]
+    },
+    {
+      "workload": "noop",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 1,
+      "round": 4,
+      "wallMs": 349.1296250000014,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 150.27050400000007,
+          "moduleLoadMs": 86.913208,
+          "runMs": 229.41254199999997,
+          "executionMs": 23,
+          "maxRssKiB": 125792
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "5.3",
+      "entry": ".benchmarks/baseline-5.3/build/index.js",
+      "workers": 1,
+      "round": 4,
+      "wallMs": 3047.5240420000046,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 98.99511199999998,
+          "moduleLoadMs": 61.73825000000001,
+          "runMs": 2949.3428750000003,
+          "executionMs": 2806,
+          "maxRssKiB": 116560
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "5.4",
+      "entry": ".benchmarks/baseline-5.4/build/index.js",
+      "workers": 1,
+      "round": 4,
+      "wallMs": 3094.243082999994,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 171.07183200000037,
+          "moduleLoadMs": 80.50408300000001,
+          "runMs": 2949.1482499999997,
+          "executionMs": 2690,
+          "maxRssKiB": 120240
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 1,
+      "round": 4,
+      "wallMs": 3194.480582999997,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 173.20703600000084,
+          "moduleLoadMs": 81.797166,
+          "runMs": 3069.2646250000003,
+          "executionMs": 2816,
+          "maxRssKiB": 115232
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 2,
+      "round": 4,
+      "wallMs": 1577.2664170000062,
+      "children": [
+        {
+          "current": 1,
+          "total": 2,
+          "imports": 533,
+          "executed": 533,
+          "failed": 0,
+          "importMs": 69.79975700000011,
+          "moduleLoadMs": 68.990458,
+          "runMs": 1464.8231250000001,
+          "executionMs": 1351,
+          "maxRssKiB": 99504
+        },
+        {
+          "current": 2,
+          "total": 2,
+          "imports": 533,
+          "executed": 533,
+          "failed": 0,
+          "importMs": 70.96836900000022,
+          "moduleLoadMs": 69.40525,
+          "runMs": 1474.006,
+          "executionMs": 1358,
+          "maxRssKiB": 100176
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 4,
+      "round": 4,
+      "wallMs": 868.6892499999958,
+      "children": [
+        {
+          "current": 1,
+          "total": 4,
+          "imports": 267,
+          "executed": 267,
+          "failed": 0,
+          "importMs": 38.86644700000011,
+          "moduleLoadMs": 65.598834,
+          "runMs": 762.92125,
+          "executionMs": 672,
+          "maxRssKiB": 96704
+        },
+        {
+          "current": 2,
+          "total": 4,
+          "imports": 267,
+          "executed": 267,
+          "failed": 0,
+          "importMs": 38.469618000000025,
+          "moduleLoadMs": 64.105334,
+          "runMs": 767.012833,
+          "executionMs": 675,
+          "maxRssKiB": 96688
+        },
+        {
+          "current": 3,
+          "total": 4,
+          "imports": 266,
+          "executed": 266,
+          "failed": 0,
+          "importMs": 40.507162000000164,
+          "moduleLoadMs": 63.469625,
+          "runMs": 769.347333,
+          "executionMs": 676,
+          "maxRssKiB": 97264
+        },
+        {
+          "current": 4,
+          "total": 4,
+          "imports": 266,
+          "executed": 266,
+          "failed": 0,
+          "importMs": 41.29567000000017,
+          "moduleLoadMs": 65.30854199999999,
+          "runMs": 768.510708,
+          "executionMs": 675,
+          "maxRssKiB": 97088
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 6,
+      "round": 4,
+      "wallMs": 1090.619292000003,
+      "children": [
+        {
+          "current": 1,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 54.25920599999915,
+          "moduleLoadMs": 107.536167,
+          "runMs": 944.344042,
+          "executionMs": 440,
+          "maxRssKiB": 92544
+        },
+        {
+          "current": 2,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 94.98192099999983,
+          "moduleLoadMs": 163.552458,
+          "runMs": 833.0620839999999,
+          "executionMs": 445,
+          "maxRssKiB": 92784
+        },
+        {
+          "current": 3,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 78.59295900000012,
+          "moduleLoadMs": 118.115208,
+          "runMs": 852.37525,
+          "executionMs": 466,
+          "maxRssKiB": 94224
+        },
+        {
+          "current": 4,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 125.18641999999932,
+          "moduleLoadMs": 132.481333,
+          "runMs": 866.499167,
+          "executionMs": 449,
+          "maxRssKiB": 92688
+        },
+        {
+          "current": 5,
+          "total": 6,
+          "imports": 177,
+          "executed": 177,
+          "failed": 0,
+          "importMs": 80.27287699999988,
+          "moduleLoadMs": 146.51945800000001,
+          "runMs": 832.983708,
+          "executionMs": 449,
+          "maxRssKiB": 94480
+        },
+        {
+          "current": 6,
+          "total": 6,
+          "imports": 177,
+          "executed": 177,
+          "failed": 0,
+          "importMs": 73.2368320000001,
+          "moduleLoadMs": 122.7715,
+          "runMs": 844.225,
+          "executionMs": 489,
+          "maxRssKiB": 93920
+        }
+      ]
+    },
+    {
+      "workload": "filtered",
+      "version": "5.3",
+      "entry": ".benchmarks/baseline-5.3/build/index.js",
+      "workers": 1,
+      "round": 4,
+      "wallMs": 226.92174999999406,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1,
+          "executed": 1,
+          "failed": 0,
+          "importMs": 1.2716660000000104,
+          "moduleLoadMs": 89.29075,
+          "runMs": 100.043625,
+          "executionMs": 6,
+          "maxRssKiB": 88768
+        }
+      ]
+    },
+    {
+      "workload": "filtered",
+      "version": "5.4",
+      "entry": ".benchmarks/baseline-5.4/build/index.js",
+      "workers": 1,
+      "round": 4,
+      "wallMs": 381.41658299999835,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1,
+          "executed": 1,
+          "failed": 0,
+          "importMs": 0.5097079999999892,
+          "moduleLoadMs": 85.482375,
+          "runMs": 214.078041,
+          "executionMs": 15,
+          "maxRssKiB": 90048
+        }
+      ]
+    },
+    {
+      "workload": "filtered",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 1,
+      "round": 4,
+      "wallMs": 340.12075000000186,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1,
+          "executed": 1,
+          "failed": 0,
+          "importMs": 0.7145830000000046,
+          "moduleLoadMs": 111.761709,
+          "runMs": 168.27425000000002,
+          "executionMs": 6,
+          "maxRssKiB": 85824
+        }
+      ]
+    },
+    {
+      "workload": "noop",
+      "version": "5.3",
+      "entry": ".benchmarks/baseline-5.3/build/index.js",
+      "workers": 1,
+      "round": 4,
+      "wallMs": 405.39137499999197,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 138.79237200000148,
+          "moduleLoadMs": 86.558625,
+          "runMs": 270.083708,
+          "executionMs": 37,
+          "maxRssKiB": 127584
+        }
+      ]
+    },
+    {
+      "workload": "noop",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 1,
+      "round": 5,
+      "wallMs": 474.0834160000086,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 145.97121299999975,
+          "moduleLoadMs": 114.16649999999998,
+          "runMs": 303.237708,
+          "executionMs": 30,
+          "maxRssKiB": 126352
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "5.3",
+      "entry": ".benchmarks/baseline-5.3/build/index.js",
+      "workers": 1,
+      "round": 5,
+      "wallMs": 2991.7306249999965,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 136.75346200000143,
+          "moduleLoadMs": 136.924958,
+          "runMs": 2815.192792,
+          "executionMs": 2595,
+          "maxRssKiB": 120752
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "5.4",
+      "entry": ".benchmarks/baseline-5.4/build/index.js",
+      "workers": 1,
+      "round": 5,
+      "wallMs": 2865.432124999992,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 132.06586699999983,
+          "moduleLoadMs": 67.533,
+          "runMs": 2756.16,
+          "executionMs": 2564,
+          "maxRssKiB": 117328
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 1,
+      "round": 5,
+      "wallMs": 3089.1149589999986,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 169.7069020000003,
+          "moduleLoadMs": 72.326125,
+          "runMs": 2977.0075,
+          "executionMs": 2761,
+          "maxRssKiB": 116880
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 2,
+      "round": 5,
+      "wallMs": 1704.6115830000053,
+      "children": [
+        {
+          "current": 1,
+          "total": 2,
+          "imports": 533,
+          "executed": 533,
+          "failed": 0,
+          "importMs": 112.93390799999995,
+          "moduleLoadMs": 117.90087500000001,
+          "runMs": 1518.4661250000001,
+          "executionMs": 1348,
+          "maxRssKiB": 102128
+        },
+        {
+          "current": 2,
+          "total": 2,
+          "imports": 533,
+          "executed": 533,
+          "failed": 0,
+          "importMs": 131.04092200000045,
+          "moduleLoadMs": 111.407916,
+          "runMs": 1540.9727500000001,
+          "executionMs": 1347,
+          "maxRssKiB": 101792
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 4,
+      "round": 5,
+      "wallMs": 1367.4604160000017,
+      "children": [
+        {
+          "current": 1,
+          "total": 4,
+          "imports": 267,
+          "executed": 267,
+          "failed": 0,
+          "importMs": 111.30087100000048,
+          "moduleLoadMs": 110.231709,
+          "runMs": 1204.504833,
+          "executionMs": 707,
+          "maxRssKiB": 97440
+        },
+        {
+          "current": 2,
+          "total": 4,
+          "imports": 267,
+          "executed": 267,
+          "failed": 0,
+          "importMs": 88.23458100000028,
+          "moduleLoadMs": 100.10229100000001,
+          "runMs": 1195.543167,
+          "executionMs": 711,
+          "maxRssKiB": 98368
+        },
+        {
+          "current": 3,
+          "total": 4,
+          "imports": 266,
+          "executed": 266,
+          "failed": 0,
+          "importMs": 131.93896800000067,
+          "moduleLoadMs": 95.389167,
+          "runMs": 1218.506583,
+          "executionMs": 693,
+          "maxRssKiB": 96240
+        },
+        {
+          "current": 4,
+          "total": 4,
+          "imports": 266,
+          "executed": 266,
+          "failed": 0,
+          "importMs": 127.78986799999996,
+          "moduleLoadMs": 109.4835,
+          "runMs": 1198.7818340000001,
+          "executionMs": 695,
+          "maxRssKiB": 98464
+        }
+      ]
+    },
+    {
+      "workload": "async",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 6,
+      "round": 5,
+      "wallMs": 1260.585042000006,
+      "children": [
+        {
+          "current": 1,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 69.16687699999886,
+          "moduleLoadMs": 238.307166,
+          "runMs": 975.3967090000001,
+          "executionMs": 424,
+          "maxRssKiB": 93232
+        },
+        {
+          "current": 2,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 173.09437599999922,
+          "moduleLoadMs": 175.317875,
+          "runMs": 1010.233917,
+          "executionMs": 436,
+          "maxRssKiB": 93536
+        },
+        {
+          "current": 3,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 100.06212699999969,
+          "moduleLoadMs": 183.28775,
+          "runMs": 975.0909579999999,
+          "executionMs": 441,
+          "maxRssKiB": 93120
+        },
+        {
+          "current": 4,
+          "total": 6,
+          "imports": 178,
+          "executed": 178,
+          "failed": 0,
+          "importMs": 52.86105099999992,
+          "moduleLoadMs": 158.371708,
+          "runMs": 872.9336669999999,
+          "executionMs": 598,
+          "maxRssKiB": 92960
+        },
+        {
+          "current": 5,
+          "total": 6,
+          "imports": 177,
+          "executed": 177,
+          "failed": 0,
+          "importMs": 51.53333100000083,
+          "moduleLoadMs": 123.161792,
+          "runMs": 930.3386660000001,
+          "executionMs": 517,
+          "maxRssKiB": 93536
+        },
+        {
+          "current": 6,
+          "total": 6,
+          "imports": 177,
+          "executed": 177,
+          "failed": 0,
+          "importMs": 40.457620999999335,
+          "moduleLoadMs": 141.500125,
+          "runMs": 907.154542,
+          "executionMs": 517,
+          "maxRssKiB": 94256
+        }
+      ]
+    },
+    {
+      "workload": "filtered",
+      "version": "5.3",
+      "entry": ".benchmarks/baseline-5.3/build/index.js",
+      "workers": 1,
+      "round": 5,
+      "wallMs": 252.6390839999949,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1,
+          "executed": 1,
+          "failed": 0,
+          "importMs": 1.3704589999999826,
+          "moduleLoadMs": 93.578542,
+          "runMs": 114.57679099999999,
+          "executionMs": 11,
+          "maxRssKiB": 88656
+        }
+      ]
+    },
+    {
+      "workload": "filtered",
+      "version": "5.4",
+      "entry": ".benchmarks/baseline-5.4/build/index.js",
+      "workers": 1,
+      "round": 5,
+      "wallMs": 230.9594999999972,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1,
+          "executed": 1,
+          "failed": 0,
+          "importMs": 0.6063330000000065,
+          "moduleLoadMs": 86.916667,
+          "runMs": 90.98104199999999,
+          "executionMs": 10,
+          "maxRssKiB": 89056
+        }
+      ]
+    },
+    {
+      "workload": "filtered",
+      "version": "fork",
+      "entry": "build/index.js",
+      "workers": 1,
+      "round": 5,
+      "wallMs": 278.0675829999964,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1,
+          "executed": 1,
+          "failed": 0,
+          "importMs": 0.5130410000000154,
+          "moduleLoadMs": 112.577042,
+          "runMs": 111.74283299999999,
+          "executionMs": 3,
+          "maxRssKiB": 86608
+        }
+      ]
+    },
+    {
+      "workload": "noop",
+      "version": "5.3",
+      "entry": ".benchmarks/baseline-5.3/build/index.js",
+      "workers": 1,
+      "round": 5,
+      "wallMs": 394.0842499999999,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 150.19071300000076,
+          "moduleLoadMs": 86.340542,
+          "runMs": 261.079417,
+          "executionMs": 25,
+          "maxRssKiB": 127440
+        }
+      ]
+    },
+    {
+      "workload": "noop",
+      "version": "5.4",
+      "entry": ".benchmarks/baseline-5.4/build/index.js",
+      "workers": 1,
+      "round": 5,
+      "wallMs": 419.32387500000186,
+      "children": [
+        {
+          "current": 1,
+          "total": 1,
+          "imports": 1066,
+          "executed": 1066,
+          "failed": 0,
+          "importMs": 140.61495600000057,
+          "moduleLoadMs": 92.325791,
+          "runMs": 292.22795900000006,
+          "executionMs": 26,
+          "maxRssKiB": 129616
+        }
+      ]
+    }
+  ],
+  "environment": {
+    "cpu": "Apple M2 Max",
+    "logicalCpus": 12,
+    "memoryGiB": 96,
+    "node": "v24.19.0",
+    "date": "2026-10-22",
+    "baselineDependencies": "shared checkout dependency tree",
+    "layout": "locally captured filenames, excluded from Git"
+  }
+}
