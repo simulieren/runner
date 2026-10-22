@@ -118,3 +118,53 @@ application speedup. Full samples/ranges are in [results/features.json](results/
 [PERFORMANCE.md](../PERFORMANCE.md) for opt-ins, history collection, defaults,
 validation, and the two-package installation requirement. No target app was
 accessed or run for these feature experiments.
+
+## Synchronous paths (speed.3)
+
+Runner `5.4.0-speed.3` and core `10.4.0-speed.2` keep a narrow improvement:
+primitive-returning synchronous callbacks bypass an async executor wrapper and
+Promise race. Timeout timers remain armed before user code. Promise-returning
+callbacks and thenables retain native assimilation, while done/regression tests
+retain the previous wrappers. No additional configuration is required.
+
+A 200,000-test CPU profile identified Emittery debug checks, producer bookkeeping,
+Promise work and GC as costs alongside test execution. The sanitized sampled
+self-time summary is in [results/core-profile-summary.json](results/core-profile-summary.json).
+This includes startup/registration/GC and is diagnostic, not a throughput estimate.
+
+A no-observer emitter prototype reduced no-listener workload time, but added
+cost when listeners were attached. The separate-change experiment is preserved
+in [results/core-path-ablation.json](results/core-path-ablation.json) and the
+[prototype patch](results/unobserved-emitter-prototype.patch). The combined and
+emitter-only variants in that experiment are **not shipped**. The production
+emitter and its subscription/debug/iterator behavior are unchanged.
+
+Reproduce the final comparison with:
+
+```sh
+npm run build
+npm run bench:prepare
+npm run bench:core-paths
+```
+
+Preparation builds the previous core from commit `8c5e2d5` into
+`.benchmarks/baseline-core-speed.2`, using the current dependency tree. Each sample
+uses a fresh Node process and 100,000 tests, timeout timers set to 2,000 ms, and
+stack capture disabled to focus on execution. There is one warm-up, seven measured
+rounds, rotating version/workload order. The observed cases attach one start and
+one end listener and verify the end-notification count. Registration is timed
+separately; execution measurements exclude verification. The Promise case returns
+an already-resolved Promise and represents no external I/O.
+
+| Execution workload | Previous core median | New core median |
+| --- | ---: | ---: |
+| Synchronous, no listeners | 318.77 ms | 303.18 ms |
+| Synchronous, start/end listeners | 338.30 ms | 320.47 ms |
+| Promise-returning, start/end listeners | 337.87 ms | 336.50 ms |
+
+Synchronous medians fell about 5%; the Promise-returning difference is negligible.
+Shared-machine noise produced long outliers and overlapping ranges, so these are
+modest synthetic median improvements, not a guaranteed application speedup. Full
+samples and ranges are in [results/core-paths.json](results/core-paths.json).
+The direct core benchmark omits runner-level active-test hooks and application
+bootstrap. ATS remains unmodified and untested.

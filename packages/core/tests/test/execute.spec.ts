@@ -1782,3 +1782,86 @@ test.describe('execute | performance paths', () => {
     assert.equal(event!.errors[0].error.message, 'Test timeout')
   })
 })
+
+test.describe('execute | synchronous fast path', () => {
+  test('preserve executor receiver and primitive return values', async () => {
+    for (const result of [undefined, null, true, 42, 'value', Symbol('value'), 1n]) {
+      const emitter = new Emitter()
+      const instance = new Test('sync', new TestContext(), emitter, new Refiner({}))
+      let called = false
+      const executor: () => void = function (this: unknown) {
+        assert.strictEqual(this, instance.options)
+        called = true
+        return result
+      }
+      instance.run(executor)
+      await instance.exec()
+      assert.isTrue(called)
+      assert.isFalse(instance.failed)
+    }
+  })
+
+  test('assimilate thenables exactly once and retain their receiver', async () => {
+    const emitter = new Emitter()
+    const instance = new Test('thenable', new TestContext(), emitter, new Refiner({}))
+    let reads = 0
+    let calls = 0
+    const result = {
+      get then() {
+        reads++
+        return function (this: unknown, resolve: () => void) {
+          assert.strictEqual(this, result)
+          calls++
+          resolve()
+        }
+      },
+    }
+    instance.run(() => result as unknown as Promise<void>)
+    await instance.exec()
+    assert.isFalse(instance.failed)
+    assert.equal(reads, 1)
+    assert.equal(calls, 1)
+  })
+
+  test('report throwing then getters and synchronous exceptions as test errors', async () => {
+    for (const executor of [
+      () => {
+        throw new Error('sync failure')
+      },
+      () =>
+        ({
+          get then() {
+            throw new Error('then failure')
+          },
+        }) as unknown as Promise<void>,
+    ]) {
+      const emitter = new Emitter()
+      const instance = new Test('failure', new TestContext(), emitter, new Refiner({}))
+      instance.run(executor)
+      const [, event] = await Promise.all([instance.exec(), pEvent(emitter, 'test:end')])
+      assert.isTrue(instance.failed)
+      assert.equal(event!.errors[0].phase, 'test')
+      assert.match(event!.errors[0].error.message, /failure/)
+    }
+  })
+
+  test('keep timeout reset before a returned promise and cancellation inside sync callbacks', async () => {
+    const emitter = new Emitter()
+    const instance = new Test('reset', new TestContext(), emitter, new Refiner({}))
+    instance.timeout(5)
+    instance.run(() => {
+      instance.resetTimeout(100)
+      return sleep(15).then(() => {})
+    })
+    await instance.exec()
+    assert.isFalse(instance.failed)
+    const next = new Test('cancel', new TestContext(), emitter, new Refiner({}))
+    next.timeout(5)
+    next.run(() => {
+      next.resetTimeout()
+      return sleep(15).then(() => {})
+    })
+    await next.exec()
+    assert.isFalse(next.failed)
+  })
+})

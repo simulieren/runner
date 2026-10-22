@@ -336,15 +336,21 @@ export class TestRunner {
    * Run the test executor. The method takes care of passing
    * dataset row to the test method
    */
-  async #runTest(done?: (error?: any) => void) {
+  #invokeTest(done?: (error?: unknown) => void): unknown {
     const datasetRow =
       this.#datasetCurrentIndex !== undefined && this.#test.dataset
         ? this.#test.dataset[this.#datasetCurrentIndex]
         : undefined
 
+    const options = this.#test.options
     return datasetRow !== undefined
-      ? (this.#test.options.executor as any)(this.#test.context, datasetRow, done)
-      : (this.#test.options.executor as any)(this.#test.context, done)
+      ? (options.executor as (...args: unknown[]) => unknown)(this.#test.context, datasetRow, done)
+      : (options.executor as (...args: unknown[]) => unknown)(this.#test.context, done)
+  }
+
+  // The done and regression paths keep Promise assimilation of thrown errors.
+  async #runTest(done?: (error?: unknown) => void) {
+    return this.#invokeTest(done)
   }
 
   /**
@@ -432,15 +438,25 @@ export class TestRunner {
    * timeout.
    */
   async #wrapTestInTimeout() {
-    if (!this.#test.options.timeout) {
-      return this.#wrapRegressionTest()
-    }
-
+    // Arm before calling user code so resetTimeout keeps its existing semantics.
+    const timeout = this.#test.options.timeout
+      ? this.#createTimeoutTimer(this.#test.options.timeout)
+      : undefined
     try {
-      await Promise.race([
-        this.#createTimeoutTimer(this.#test.options.timeout),
-        this.#wrapRegressionTest(),
-      ])
+      const result =
+        this.#test.options.waitsForDone || this.#test.options.isFailing
+          ? this.#wrapRegressionTest()
+          : this.#invokeTest()
+
+      // Primitive results cannot be thenables. Avoid an async wrapper and race.
+      // Objects/functions stay on native Promise assimilation: never inspect .then
+      // here, since getters can throw or change value between reads.
+      if (result === null || (typeof result !== 'object' && typeof result !== 'function')) return
+      if (timeout) {
+        await Promise.race([timeout, result])
+      } else {
+        await result
+      }
     } finally {
       this.#clearTimer()
     }

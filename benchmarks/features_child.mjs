@@ -24,7 +24,14 @@ if (mode === 'startup') {
   const { Test, Emitter, Refiner } = await import(pathToFileURL(resolve(entry)))
   const emitter = new Emitter()
   const refiner = new Refiner()
-  const count = 10000
+  const count = Number(process.env.BENCH_TEST_COUNT ?? 10000)
+  let notifications = 0
+  if (option.includes('observed')) {
+    emitter.on('test:start', () => {})
+    emitter.on('test:end', () => {
+      notifications++
+    })
+  }
   let executed = 0
   const tests = []
   const registering = performance.now()
@@ -34,8 +41,9 @@ if (mode === 'startup') {
     instance.run(
       () => {
         executed++
+        if (option.includes('async')) return Promise.resolve()
       },
-      option === 'no-stacks' ? null : undefined
+      option.includes('no-stacks') ? null : undefined
     )
     tests.push(instance)
   }
@@ -44,6 +52,7 @@ if (mode === 'startup') {
   for (const instance of tests) await instance.exec()
   const executionMs = performance.now() - executing
   assert.equal(executed, count)
+  if (option.includes('observed')) assert.equal(notifications, count)
   assert(tests.every((instance) => !instance.failed))
   console.log(
     JSON.stringify({ count, registrationMs, executionMs, elapsedMs: registrationMs + executionMs })
@@ -53,7 +62,7 @@ if (mode === 'startup') {
     pathToFileURL(resolve(entry, 'build/modules/core/main.js'))
   )
   const { spec, dot } = await import(pathToFileURL(resolve(entry, 'build/src/reporters/main.js')))
-  const count = 10000
+  const count = Number(process.env.BENCH_TEST_COUNT ?? 10000)
   const emitter = new Emitter()
   const runner = new Runner(emitter)
   const refiner = new Refiner()

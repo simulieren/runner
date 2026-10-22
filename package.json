@@ -1,7 +1,7 @@
 {
   "name": "@japa/runner",
   "description": "A simple yet powerful testing framework for Node.js",
-  "version": "5.4.0-speed.2",
+  "version": "5.4.0-speed.3",
   "engines": {
     "node": ">=18.16.0"
   },
@@ -41,7 +41,8 @@
     "build:core": "npm run build --workspace=@japa/core",
     "test:core": "npm test --workspace=@japa/core",
     "bench:features": "node benchmarks/features.mjs",
-    "bench:smoke": "node benchmarks/smoke.mjs"
+    "bench:smoke": "node benchmarks/smoke.mjs",
+    "bench:core-paths": "node benchmarks/core_paths.mjs"
   },
   "devDependencies": {
     "@adonisjs/eslint-config": "^3.0.0-next.9",
@@ -62,7 +63,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@japa/core": "10.4.0-speed.1",
+    "@japa/core": "10.4.0-speed.2",
     "@japa/errors-printer": "^4.1.4",
     "@poppinss/colors": "^4.1.6",
     "@poppinss/hooks": "^7.3.0",

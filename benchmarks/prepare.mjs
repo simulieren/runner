@@ -65,6 +65,22 @@ for (const [version, ref] of [
   if (!linked) await symlink(resolve(upstream, 'node_modules'), link, 'dir')
   execFileSync(resolve('node_modules/.bin/tsdown'), [], { cwd: directory, stdio: 'inherit' })
 }
+// Keep the previous shipped core available for synchronous-path comparisons.
+const previousCore = resolve('.benchmarks/baseline-core-speed.2')
+let coreExists = true
+try {
+  await access(previousCore)
+} catch {
+  coreExists = false
+}
+if (!coreExists) {
+  await mkdir(previousCore)
+  const archive = execFileSync('git', ['archive', '8c5e2d5', 'packages/core'])
+  execFileSync('tar', ['-x', '--strip-components=2', '-C', previousCore], { input: archive })
+  await symlink(resolve('node_modules'), resolve(previousCore, 'node_modules'), 'dir')
+}
+execFileSync(resolve('node_modules/.bin/tsdown'), [], { cwd: previousCore, stdio: 'inherit' })
+
 // Optional argument is a directory of test filenames, accessed only with readdir.
 // No test contents, environment files, databases or application code are loaded.
 if (process.argv[2]) {

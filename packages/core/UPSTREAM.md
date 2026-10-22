@@ -12,14 +12,19 @@ Local changes:
 - Skip absent dataset/context callback stages and empty setup, teardown and
   cleanup stages. Preserve the async skip-event boundary and captured hook
   runner semantics.
+- Invoke synchronous primitive-returning callbacks without an extra async
+  wrapper or Promise race. Keep timer setup/reset, callback receivers, native
+  thenable assimilation and done/regression wrappers. The no-listener emitter
+  prototype was rejected after it added overhead to observed events; production
+  event dispatch is unchanged.
 - Accept an explicit `null` debugging error in `Test.run` to opt out of stack
   capture. Omitted arguments still capture declaration stacks.
 - Add regression coverage for datasets, dynamic cleanup, failure cleanup, and
   timeouts without declaration stacks.
-- Use version `10.4.0-speed.1`; retain `time-span` as a runtime dependency because
+- Use version `10.4.0-speed.2`; retain `time-span` as a runtime dependency because
   the checked-in source imports it.
 - Quote the test glob so Node runs top-level and nested test files. Ignore build
   output in linting.
 
-Build and pack this package alongside runner `5.4.0-speed.2`. Install both
+Build and pack this package alongside runner `5.4.0-speed.3`. Install both
 local tarballs together; neither prerelease has been published to npm.

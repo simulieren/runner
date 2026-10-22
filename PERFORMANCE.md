@@ -1,6 +1,6 @@
 # Performance fork
 
-Runner `5.4.0-speed.2` uses the checked-in core fork `10.4.0-speed.1` in
+Runner `5.4.0-speed.3` uses the checked-in core fork `10.4.0-speed.2` in
 `packages/core`. Both are local prereleases. No target application is modified
 or run by the development or benchmark commands.
 
@@ -8,6 +8,10 @@ or run by the development or benchmark commands.
 
 - File discovery reuses a locale-aware collator; filtering reuses path segments.
 - Built-in reporters load when activated. Error printers load only when needed.
+- Synchronous callbacks returning primitive values avoid a redundant async wrapper
+  and Promise race. Timeout timers still arm before user code so resets and
+  cancellation retain their behavior. Objects/functions use native Promise
+  assimilation; done/regression tests retain their existing wrappers.
 - Core skips empty lifecycle/cleanup stages and absent dataset/context callbacks.
   The original asynchronous skip-event boundary remains intact.
 - Declaration-stack capture remains enabled. Set `captureTestLocations: false`
@@ -91,8 +95,8 @@ npm pack --workspace=@japa/core --ignore-scripts --pack-destination .benchmarks
 npm pack --workspaces=false --ignore-scripts --pack-destination .benchmarks
 ```
 
-The two tarballs are `japa-core-10.4.0-speed.1.tgz` and
-`japa-runner-5.4.0-speed.2.tgz`. Install **both together** into an isolated test
+The two tarballs are `japa-core-10.4.0-speed.2.tgz` and
+`japa-runner-5.4.0-speed.3.tgz`. Install **both together** into an isolated test
 project when ready. The runner depends on the unpublished core prerelease;
 installing the runner tarball alone cannot resolve that version from npm.
 

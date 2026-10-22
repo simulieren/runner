@@ -1,0 +1,318 @@
+{
+  "node": "v24.19.0",
+  "count": 100000,
+  "warmups": 1,
+  "repetitions": 7,
+  "results": {
+    "speed.2/no-stacks": {
+      "medianExecutionMs": 318.773791,
+      "minExecutionMs": 311.461958,
+      "maxExecutionMs": 335.361541,
+      "medianRegistrationMs": 47.60150000000001
+    },
+    "speed.3/no-stacks": {
+      "medianExecutionMs": 303.18266700000004,
+      "minExecutionMs": 296.609541,
+      "maxExecutionMs": 530.564333,
+      "medianRegistrationMs": 44.091125000000005
+    },
+    "speed.2/no-stacks-observed": {
+      "medianExecutionMs": 338.298417,
+      "minExecutionMs": 332.247667,
+      "maxExecutionMs": 537.898375,
+      "medianRegistrationMs": 46.564541999999996
+    },
+    "speed.3/no-stacks-observed": {
+      "medianExecutionMs": 320.465292,
+      "minExecutionMs": 317.585167,
+      "maxExecutionMs": 635.346583,
+      "medianRegistrationMs": 46.585
+    },
+    "speed.2/no-stacks-async-observed": {
+      "medianExecutionMs": 337.869125,
+      "minExecutionMs": 328.183917,
+      "maxExecutionMs": 546.9441669999999,
+      "medianRegistrationMs": 49.116
+    },
+    "speed.3/no-stacks-async-observed": {
+      "medianExecutionMs": 336.501,
+      "minExecutionMs": 331.218791,
+      "maxExecutionMs": 559.966333,
+      "medianRegistrationMs": 45.411790999999994
+    }
+  },
+  "samples": {
+    "speed.2/no-stacks": [
+      {
+        "count": 100000,
+        "registrationMs": 109.8855,
+        "executionMs": 335.361541,
+        "elapsedMs": 445.24704099999997
+      },
+      {
+        "count": 100000,
+        "registrationMs": 47.450750000000006,
+        "executionMs": 332.730917,
+        "elapsedMs": 380.181667
+      },
+      {
+        "count": 100000,
+        "registrationMs": 47.510583000000004,
+        "executionMs": 318.773791,
+        "elapsedMs": 366.284374
+      },
+      {
+        "count": 100000,
+        "registrationMs": 47.60150000000001,
+        "executionMs": 311.461958,
+        "elapsedMs": 359.06345799999997
+      },
+      {
+        "count": 100000,
+        "registrationMs": 57.258083,
+        "executionMs": 316.217875,
+        "elapsedMs": 373.475958
+      },
+      {
+        "count": 100000,
+        "registrationMs": 47.95875,
+        "executionMs": 314.40037500000005,
+        "elapsedMs": 362.35912500000006
+      },
+      {
+        "count": 100000,
+        "registrationMs": 45.426417,
+        "executionMs": 321.375959,
+        "elapsedMs": 366.80237600000004
+      }
+    ],
+    "speed.3/no-stacks": [
+      {
+        "count": 100000,
+        "registrationMs": 99.49666599999999,
+        "executionMs": 530.564333,
+        "elapsedMs": 630.060999
+      },
+      {
+        "count": 100000,
+        "registrationMs": 44.091125000000005,
+        "executionMs": 304.16641699999997,
+        "elapsedMs": 348.25754199999994
+      },
+      {
+        "count": 100000,
+        "registrationMs": 42.6885,
+        "executionMs": 296.609541,
+        "elapsedMs": 339.29804099999996
+      },
+      {
+        "count": 100000,
+        "registrationMs": 42.976333,
+        "executionMs": 303.18266700000004,
+        "elapsedMs": 346.15900000000005
+      },
+      {
+        "count": 100000,
+        "registrationMs": 49.338417,
+        "executionMs": 298.28475,
+        "elapsedMs": 347.62316699999997
+      },
+      {
+        "count": 100000,
+        "registrationMs": 45.042249999999996,
+        "executionMs": 304.37508399999996,
+        "elapsedMs": 349.417334
+      },
+      {
+        "count": 100000,
+        "registrationMs": 43.605542,
+        "executionMs": 302.127958,
+        "elapsedMs": 345.7335
+      }
+    ],
+    "speed.2/no-stacks-observed": [
+      {
+        "count": 100000,
+        "registrationMs": 141.061333,
+        "executionMs": 537.898375,
+        "elapsedMs": 678.959708
+      },
+      {
+        "count": 100000,
+        "registrationMs": 43.041166999999994,
+        "executionMs": 380.45829200000003,
+        "elapsedMs": 423.499459
+      },
+      {
+        "count": 100000,
+        "registrationMs": 42.75516699999999,
+        "executionMs": 332.797792,
+        "elapsedMs": 375.552959
+      },
+      {
+        "count": 100000,
+        "registrationMs": 49.51825,
+        "executionMs": 332.247667,
+        "elapsedMs": 381.765917
+      },
+      {
+        "count": 100000,
+        "registrationMs": 45.930375,
+        "executionMs": 340.13708299999996,
+        "elapsedMs": 386.067458
+      },
+      {
+        "count": 100000,
+        "registrationMs": 51.837291,
+        "executionMs": 338.298417,
+        "elapsedMs": 390.13570799999997
+      },
+      {
+        "count": 100000,
+        "registrationMs": 46.564541999999996,
+        "executionMs": 336.96054100000003,
+        "elapsedMs": 383.52508300000005
+      }
+    ],
+    "speed.3/no-stacks-observed": [
+      {
+        "count": 100000,
+        "registrationMs": 158.24929099999997,
+        "executionMs": 635.346583,
+        "elapsedMs": 793.595874
+      },
+      {
+        "count": 100000,
+        "registrationMs": 46.585,
+        "executionMs": 357.020541,
+        "elapsedMs": 403.60554099999996
+      },
+      {
+        "count": 100000,
+        "registrationMs": 50.428791999999994,
+        "executionMs": 324.5125,
+        "elapsedMs": 374.941292
+      },
+      {
+        "count": 100000,
+        "registrationMs": 51.27904099999999,
+        "executionMs": 320.465292,
+        "elapsedMs": 371.744333
+      },
+      {
+        "count": 100000,
+        "registrationMs": 44.128499999999995,
+        "executionMs": 317.585167,
+        "elapsedMs": 361.713667
+      },
+      {
+        "count": 100000,
+        "registrationMs": 42.874666999999995,
+        "executionMs": 317.625625,
+        "elapsedMs": 360.500292
+      },
+      {
+        "count": 100000,
+        "registrationMs": 42.415458,
+        "executionMs": 320.11341699999997,
+        "elapsedMs": 362.52887499999997
+      }
+    ],
+    "speed.2/no-stacks-async-observed": [
+      {
+        "count": 100000,
+        "registrationMs": 170.952458,
+        "executionMs": 546.9441669999999,
+        "elapsedMs": 717.8966249999999
+      },
+      {
+        "count": 100000,
+        "registrationMs": 74.39841700000001,
+        "executionMs": 400.1586669999999,
+        "elapsedMs": 474.5570839999999
+      },
+      {
+        "count": 100000,
+        "registrationMs": 44.982958,
+        "executionMs": 330.239292,
+        "elapsedMs": 375.22225
+      },
+      {
+        "count": 100000,
+        "registrationMs": 46.555542,
+        "executionMs": 328.183917,
+        "elapsedMs": 374.739459
+      },
+      {
+        "count": 100000,
+        "registrationMs": 50.331209,
+        "executionMs": 337.869125,
+        "elapsedMs": 388.200334
+      },
+      {
+        "count": 100000,
+        "registrationMs": 44.845583,
+        "executionMs": 345.91829199999995,
+        "elapsedMs": 390.7638749999999
+      },
+      {
+        "count": 100000,
+        "registrationMs": 49.116,
+        "executionMs": 336.534083,
+        "elapsedMs": 385.650083
+      }
+    ],
+    "speed.3/no-stacks-async-observed": [
+      {
+        "count": 100000,
+        "registrationMs": 135.871667,
+        "executionMs": 559.966333,
+        "elapsedMs": 695.838
+      },
+      {
+        "count": 100000,
+        "registrationMs": 63.14812500000001,
+        "executionMs": 350.096542,
+        "elapsedMs": 413.244667
+      },
+      {
+        "count": 100000,
+        "registrationMs": 45.015499999999996,
+        "executionMs": 340.837709,
+        "elapsedMs": 385.853209
+      },
+      {
+        "count": 100000,
+        "registrationMs": 42.67320800000001,
+        "executionMs": 331.218791,
+        "elapsedMs": 373.891999
+      },
+      {
+        "count": 100000,
+        "registrationMs": 45.411790999999994,
+        "executionMs": 333.952583,
+        "elapsedMs": 379.364374
+      },
+      {
+        "count": 100000,
+        "registrationMs": 45.67699999999999,
+        "executionMs": 336.501,
+        "elapsedMs": 382.178
+      },
+      {
+        "count": 100000,
+        "registrationMs": 42.82070900000001,
+        "executionMs": 334.317292,
+        "elapsedMs": 377.13800100000003
+      }
+    ]
+  },
+  "environment": {
+    "cpu": "Apple M2 Max",
+    "node": "v24.19.0",
+    "date": "2026-10-22",
+    "baselineCore": "10.4.0-speed.1",
+    "candidateCore": "10.4.0-speed.2",
+    "note": "Synthetic core tests only; no target application access."
+  }
+}

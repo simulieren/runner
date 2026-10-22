@@ -1,0 +1,139 @@
+{
+  "node": "v24.19.0",
+  "testCount": 200000,
+  "baseline": "runner 5.4.0-speed.2 / core 10.4.0-speed.1",
+  "scope": "No-stack, no-listener synthetic core workload; profile includes registration, execution, startup and GC.",
+  "timings": {
+    "count": 200000,
+    "registrationMs": 80.24316700000001,
+    "executionMs": 615.215458,
+    "elapsedMs": 695.458625
+  },
+  "topSelfTime": [
+    {
+      "file": ".benchmarks/install-smoke/node_modules/emittery/index.js",
+      "functionName": "get isDebugEnabled",
+      "selfMs": 145.627
+    },
+    {
+      "file": "",
+      "functionName": "(program)",
+      "selfMs": 89.043
+    },
+    {
+      "file": "",
+      "functionName": "(garbage collector)",
+      "selfMs": 80.249
+    },
+    {
+      "file": ".benchmarks/install-smoke/node_modules/emittery/index.js",
+      "functionName": "enqueueProducers",
+      "selfMs": 66.207
+    },
+    {
+      "file": ".benchmarks/install-smoke/node_modules/emittery/index.js",
+      "functionName": "emit",
+      "selfMs": 64.793
+    },
+    {
+      "file": "benchmarks/features_child.mjs",
+      "functionName": "",
+      "selfMs": 36.918
+    },
+    {
+      "file": ".benchmarks/install-smoke/node_modules/@japa/core/build/index.js",
+      "functionName": "exec",
+      "selfMs": 29.332
+    },
+    {
+      "file": ".benchmarks/install-smoke/node_modules/@japa/core/build/index.js",
+      "functionName": "#wrapTestInTimeout",
+      "selfMs": 23.958
+    },
+    {
+      "file": "node:timers",
+      "functionName": "unenroll",
+      "selfMs": 18.751
+    },
+    {
+      "file": ".benchmarks/install-smoke/node_modules/@japa/core/build/index.js",
+      "functionName": "emit",
+      "selfMs": 16.208
+    },
+    {
+      "file": "node:internal/modules/esm/utils",
+      "functionName": "compileSourceTextModule",
+      "selfMs": 15.042
+    },
+    {
+      "file": ".benchmarks/install-smoke/node_modules/@japa/core/build/index.js",
+      "functionName": "run",
+      "selfMs": 13.914
+    },
+    {
+      "file": ".benchmarks/install-smoke/node_modules/@japa/core/build/index.js",
+      "functionName": "#notifyStart",
+      "selfMs": 13.75
+    },
+    {
+      "file": ".benchmarks/install-smoke/node_modules/@japa/core/build/index.js",
+      "functionName": "#notifyEnd",
+      "selfMs": 12.54
+    },
+    {
+      "file": "",
+      "functionName": "hrtimeBigInt",
+      "selfMs": 12.417
+    },
+    {
+      "file": "node:internal/timers",
+      "functionName": "insert",
+      "selfMs": 11.041
+    },
+    {
+      "file": ".benchmarks/install-smoke/node_modules/string-width/index.js",
+      "functionName": "",
+      "selfMs": 10
+    },
+    {
+      "file": ".benchmarks/install-smoke/node_modules/@japa/core/build/index.js",
+      "functionName": "Test",
+      "selfMs": 9.624
+    },
+    {
+      "file": ".benchmarks/install-smoke/node_modules/@japa/core/build/index.js",
+      "functionName": "TestRunner",
+      "selfMs": 7.375
+    },
+    {
+      "file": ".benchmarks/install-smoke/node_modules/@japa/core/build/index.js",
+      "functionName": "",
+      "selfMs": 5.125
+    },
+    {
+      "file": ".benchmarks/install-smoke/node_modules/@poppinss/hooks/build/index.js",
+      "functionName": "Runner",
+      "selfMs": 5.125
+    },
+    {
+      "file": "",
+      "functionName": "toggleTimerRef",
+      "selfMs": 3.792
+    },
+    {
+      "file": ".benchmarks/install-smoke/node_modules/@poppinss/hooks/build/index.js",
+      "functionName": "has",
+      "selfMs": 3.792
+    },
+    {
+      "file": ".benchmarks/install-smoke/node_modules/time-span/index.js",
+      "functionName": "timeSpan",
+      "selfMs": 3.75
+    },
+    {
+      "file": ".benchmarks/install-smoke/node_modules/@poppinss/hooks/build/index.js",
+      "functionName": "runner",
+      "selfMs": 3.75
+    }
+  ]
+}

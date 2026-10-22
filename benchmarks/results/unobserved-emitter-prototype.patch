@@ -1,0 +1,38 @@
+diff --git a/packages/core/src/emitter.ts b/packages/core/src/emitter.ts
+index 9fbf6bb..8cfecd1 100644
+--- a/packages/core/src/emitter.ts
++++ b/packages/core/src/emitter.ts
+@@ -10,6 +10,9 @@
+ import Emittery from 'emittery'
+ import { type RunnerEvents } from './types.ts'
+ 
++const RESOLVED = Promise.resolve()
++const LISTENER_COUNT = Emittery.prototype.listenerCount
++
+ /**
+  * Runner emitter
+  */
+@@ -32,6 +35,23 @@ export class Emitter extends Emittery<RunnerEvents> {
+     allowMetaEvents?: boolean
+   ): Promise<void> {
+     try {
++      if (
++        Object.getPrototypeOf(this) === Emitter.prototype &&
++        !Object.hasOwn(this, 'logIfDebugEnabled') &&
++        !Object.hasOwn(Emitter.prototype, 'logIfDebugEnabled') &&
++        this.listenerCount === LISTENER_COUNT &&
++        typeof eventName === 'string' &&
++        this.listenerCount(eventName) === 0 &&
++        !Emittery.isDebugEnabled &&
++        !this.debug.enabled
++      ) {
++        // Match Emittery's two async stages plus this wrapper. listenerCount also
++        // includes onAny and iterator consumers; all observed events use Emittery.
++        await RESOLVED
++        await RESOLVED
++        await RESOLVED
++        return
++      }
+       await (super.emit as any)(eventName, eventData!, allowMetaEvents)
+     } catch (error) {
+       if (this.#errorHandler) {
