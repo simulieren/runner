@@ -1,21 +1,10 @@
-diff --git a/packages/core/src/emitter.ts b/packages/core/src/emitter.ts
-index 9fbf6bb..8cfecd1 100644
 --- a/packages/core/src/emitter.ts
 +++ b/packages/core/src/emitter.ts
-@@ -10,6 +10,9 @@
- import Emittery from 'emittery'
- import { type RunnerEvents } from './types.ts'
- 
+@@ -11,0 +12,3 @@
++
 +const RESOLVED = Promise.resolve()
 +const LISTENER_COUNT = Emittery.prototype.listenerCount
-+
- /**
-  * Runner emitter
-  */
-@@ -32,6 +35,23 @@ export class Emitter extends Emittery<RunnerEvents> {
-     allowMetaEvents?: boolean
-   ): Promise<void> {
-     try {
+@@ -34,0 +38,17 @@
 +      if (
 +        Object.getPrototypeOf(this) === Emitter.prototype &&
 +        !Object.hasOwn(this, 'logIfDebugEnabled') &&
@@ -33,6 +22,3 @@ index 9fbf6bb..8cfecd1 100644
 +        await RESOLVED
 +        return
 +      }
-       await (super.emit as any)(eventName, eventData!, allowMetaEvents)
-     } catch (error) {
-       if (this.#errorHandler) {
