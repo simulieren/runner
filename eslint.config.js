@@ -1,4 +1,4 @@
 import { configPkg } from '@adonisjs/eslint-config'
 export default configPkg({
-  ignores: ['coverage', '.benchmarks/**'],
+  ignores: ['coverage', '.benchmarks/**', 'packages/core/build/**'],
 })

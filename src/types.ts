@@ -95,6 +95,12 @@ export type BaseConfig = {
    */
   cwd?: string
 
+  /** Capture declaration stacks for timeout/pinned-test diagnostics. Defaults to true. */
+  captureTestLocations?: boolean
+
+  /** File duration estimates in milliseconds; enables balanced sharding when nonempty. */
+  shardDurations?: Record<string, number>
+
   /**
    * The timeout to apply on all the tests, unless overwritten explicitly
    */

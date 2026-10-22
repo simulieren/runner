@@ -1,6 +1,8 @@
 # @japa/runner
 > A simple yet powerful testing framework for Node.js
 
+This performance fork includes runner and core optimizations. See [features, defaults, and local packages](PERFORMANCE.md) and [measured benchmarks](benchmarks/README.md).
+
 [![github-actions-image]][github-actions-url] [![npm-image]][npm-url] [![license-image]][license-url] [![typescript-image]][typescript-url]
 
 Japa comes with everything you need to test your backend applications. Be it writing JSON API tests using an Open API schema or writing browser tests using Playwright.

@@ -1,0 +1,521 @@
+{
+  "node": "v24.19.0",
+  "warmups": 1,
+  "repetitions": 5,
+  "testCount": 10000,
+  "results": {
+    "shards-round-robin": {
+      "medianMs": 229.86041699999987,
+      "minMs": 227.2559170000004,
+      "maxMs": 314.3949159999993
+    },
+    "shards-duration": {
+      "medianMs": 162.70104100000026,
+      "minMs": 156.4832919999999,
+      "maxMs": 175.85362499999974
+    },
+    "startup-5.4": {
+      "medianMs": 59.47324999999999,
+      "minMs": 54.715582999999995,
+      "maxMs": 62.24408400000001,
+      "modules": 92,
+      "printerLoaded": true
+    },
+    "startup-speed.1": {
+      "medianMs": 59.2645,
+      "minMs": 53.923666999999995,
+      "maxMs": 61.337125,
+      "modules": 92,
+      "printerLoaded": true
+    },
+    "startup-speed.2": {
+      "medianMs": 44.096209,
+      "minMs": 38.724166,
+      "maxMs": 46.692208,
+      "modules": 59,
+      "printerLoaded": false
+    },
+    "core-upstream": {
+      "medianMs": 90.78591700000001,
+      "minMs": 88.672042,
+      "maxMs": 92.47287599999999,
+      "medianRegistrationMs": 23.662292,
+      "medianExecutionMs": 67.108042
+    },
+    "core-fork": {
+      "medianMs": 78.546,
+      "minMs": 75.28645799999998,
+      "maxMs": 80.15533299999998,
+      "medianRegistrationMs": 23.626208,
+      "medianExecutionMs": 54.16520800000001
+    },
+    "core-fork-no-stacks": {
+      "medianMs": 59.253041,
+      "minMs": 57.322083000000006,
+      "maxMs": 62.19595900000001,
+      "medianRegistrationMs": 6.206666000000006,
+      "medianExecutionMs": 53.034167
+    },
+    "spec-5.4": {
+      "medianMs": 123.35541699999999,
+      "minMs": 122.094708,
+      "maxMs": 152.214709,
+      "medianWrites": 10004
+    },
+    "spec-fork-immediate": {
+      "medianMs": 116.37124999999999,
+      "minMs": 108.817125,
+      "maxMs": 162.599708,
+      "medianWrites": 10004
+    },
+    "spec-fork-buffered": {
+      "medianMs": 73.00220900000001,
+      "minMs": 71.31695800000001,
+      "maxMs": 88.25191600000001,
+      "medianWrites": 27
+    },
+    "dot-5.4": {
+      "medianMs": 109.952584,
+      "minMs": 105.004334,
+      "maxMs": 133.11116700000002,
+      "medianWrites": 10005
+    },
+    "dot-fork-immediate": {
+      "medianMs": 96.065542,
+      "minMs": 90.23525,
+      "maxMs": 107.387458,
+      "medianWrites": 10005
+    },
+    "dot-fork-buffered": {
+      "medianMs": 72.35979099999999,
+      "minMs": 68.44670799999999,
+      "maxMs": 115.56824999999998,
+      "medianWrites": 7
+    }
+  },
+  "samples": {
+    "shards-round-robin": [
+      {
+        "elapsedMs": 227.54041599999982,
+        "executed": 4
+      },
+      {
+        "elapsedMs": 227.2559170000004,
+        "executed": 4
+      },
+      {
+        "elapsedMs": 229.86041699999987,
+        "executed": 4
+      },
+      {
+        "elapsedMs": 229.92929200000071,
+        "executed": 4
+      },
+      {
+        "elapsedMs": 314.3949159999993,
+        "executed": 4
+      }
+    ],
+    "shards-duration": [
+      {
+        "elapsedMs": 156.4832919999999,
+        "executed": 4
+      },
+      {
+        "elapsedMs": 165.40512499999932,
+        "executed": 4
+      },
+      {
+        "elapsedMs": 162.70104100000026,
+        "executed": 4
+      },
+      {
+        "elapsedMs": 162.007834,
+        "executed": 4
+      },
+      {
+        "elapsedMs": 175.85362499999974,
+        "executed": 4
+      }
+    ],
+    "startup-5.4": [
+      {
+        "elapsedMs": 54.715582999999995,
+        "modules": 92,
+        "printerLoaded": true
+      },
+      {
+        "elapsedMs": 59.47324999999999,
+        "modules": 92,
+        "printerLoaded": true
+      },
+      {
+        "elapsedMs": 61.066916000000006,
+        "modules": 92,
+        "printerLoaded": true
+      },
+      {
+        "elapsedMs": 62.24408400000001,
+        "modules": 92,
+        "printerLoaded": true
+      },
+      {
+        "elapsedMs": 59.183333000000005,
+        "modules": 92,
+        "printerLoaded": true
+      }
+    ],
+    "startup-speed.1": [
+      {
+        "elapsedMs": 53.923666999999995,
+        "modules": 92,
+        "printerLoaded": true
+      },
+      {
+        "elapsedMs": 58.371291,
+        "modules": 92,
+        "printerLoaded": true
+      },
+      {
+        "elapsedMs": 59.2645,
+        "modules": 92,
+        "printerLoaded": true
+      },
+      {
+        "elapsedMs": 60.898958,
+        "modules": 92,
+        "printerLoaded": true
+      },
+      {
+        "elapsedMs": 61.337125,
+        "modules": 92,
+        "printerLoaded": true
+      }
+    ],
+    "startup-speed.2": [
+      {
+        "elapsedMs": 38.724166,
+        "modules": 59,
+        "printerLoaded": false
+      },
+      {
+        "elapsedMs": 40.901666,
+        "modules": 59,
+        "printerLoaded": false
+      },
+      {
+        "elapsedMs": 46.692208,
+        "modules": 59,
+        "printerLoaded": false
+      },
+      {
+        "elapsedMs": 44.236666,
+        "modules": 59,
+        "printerLoaded": false
+      },
+      {
+        "elapsedMs": 44.096209,
+        "modules": 59,
+        "printerLoaded": false
+      }
+    ],
+    "core-upstream": [
+      {
+        "count": 10000,
+        "registrationMs": 22.538250000000005,
+        "executionMs": 66.461458,
+        "elapsedMs": 88.999708
+      },
+      {
+        "count": 10000,
+        "registrationMs": 22.975584000000005,
+        "executionMs": 65.696458,
+        "elapsedMs": 88.672042
+      },
+      {
+        "count": 10000,
+        "registrationMs": 24.52262499999999,
+        "executionMs": 67.46679099999999,
+        "elapsedMs": 91.98941599999998
+      },
+      {
+        "count": 10000,
+        "registrationMs": 23.677875000000007,
+        "executionMs": 67.108042,
+        "elapsedMs": 90.78591700000001
+      },
+      {
+        "count": 10000,
+        "registrationMs": 23.662292,
+        "executionMs": 68.81058399999999,
+        "elapsedMs": 92.47287599999999
+      }
+    ],
+    "core-fork": [
+      {
+        "count": 10000,
+        "registrationMs": 23.11862500000001,
+        "executionMs": 54.06016600000001,
+        "elapsedMs": 77.17879100000002
+      },
+      {
+        "count": 10000,
+        "registrationMs": 22.967415999999993,
+        "executionMs": 52.319041999999996,
+        "elapsedMs": 75.28645799999998
+      },
+      {
+        "count": 10000,
+        "registrationMs": 25.174541999999995,
+        "executionMs": 54.980790999999996,
+        "elapsedMs": 80.15533299999998
+      },
+      {
+        "count": 10000,
+        "registrationMs": 23.626208,
+        "executionMs": 55.12675,
+        "elapsedMs": 78.752958
+      },
+      {
+        "count": 10000,
+        "registrationMs": 24.380792,
+        "executionMs": 54.16520800000001,
+        "elapsedMs": 78.546
+      }
+    ],
+    "core-fork-no-stacks": [
+      {
+        "count": 10000,
+        "registrationMs": 5.687167000000002,
+        "executionMs": 51.634916000000004,
+        "elapsedMs": 57.322083000000006
+      },
+      {
+        "count": 10000,
+        "registrationMs": 6.006084000000001,
+        "executionMs": 53.034167,
+        "elapsedMs": 59.040251
+      },
+      {
+        "count": 10000,
+        "registrationMs": 6.8969590000000025,
+        "executionMs": 55.29900000000001,
+        "elapsedMs": 62.19595900000001
+      },
+      {
+        "count": 10000,
+        "registrationMs": 6.277791000000001,
+        "executionMs": 52.97525,
+        "elapsedMs": 59.253041
+      },
+      {
+        "count": 10000,
+        "registrationMs": 6.206666000000006,
+        "executionMs": 53.32833299999999,
+        "elapsedMs": 59.534999
+      }
+    ],
+    "spec-5.4": [
+      {
+        "elapsedMs": 122.582,
+        "writes": 10004,
+        "bytes": 204155,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 122.094708,
+        "writes": 10004,
+        "bytes": 203282,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 152.214709,
+        "writes": 10004,
+        "bytes": 204362,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 123.35541699999999,
+        "writes": 10004,
+        "bytes": 203589,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 128.971167,
+        "writes": 10004,
+        "bytes": 204906,
+        "count": 10000
+      }
+    ],
+    "spec-fork-immediate": [
+      {
+        "elapsedMs": 108.817125,
+        "writes": 10004,
+        "bytes": 200935,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 115.02766600000001,
+        "writes": 10004,
+        "bytes": 201231,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 116.37124999999999,
+        "writes": 10004,
+        "bytes": 201145,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 127.262667,
+        "writes": 10004,
+        "bytes": 201612,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 162.599708,
+        "writes": 10004,
+        "bytes": 204506,
+        "count": 10000
+      }
+    ],
+    "spec-fork-buffered": [
+      {
+        "elapsedMs": 71.31695800000001,
+        "writes": 26,
+        "bytes": 200425,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 71.92704199999999,
+        "writes": 27,
+        "bytes": 200914,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 73.00220900000001,
+        "writes": 26,
+        "bytes": 200411,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 88.25191600000001,
+        "writes": 27,
+        "bytes": 201001,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 85.080333,
+        "writes": 27,
+        "bytes": 201442,
+        "count": 10000
+      }
+    ],
+    "dot-5.4": [
+      {
+        "elapsedMs": 105.004334,
+        "writes": 10005,
+        "bytes": 30053,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 109.952584,
+        "writes": 10005,
+        "bytes": 30053,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 111.46399999999998,
+        "writes": 10005,
+        "bytes": 30053,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 133.11116700000002,
+        "writes": 10005,
+        "bytes": 30053,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 109.16012500000001,
+        "writes": 10005,
+        "bytes": 30053,
+        "count": 10000
+      }
+    ],
+    "dot-fork-immediate": [
+      {
+        "elapsedMs": 93.24320800000001,
+        "writes": 10005,
+        "bytes": 30052,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 90.23525,
+        "writes": 10005,
+        "bytes": 30052,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 99.760333,
+        "writes": 10005,
+        "bytes": 30052,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 107.387458,
+        "writes": 10005,
+        "bytes": 30053,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 96.065542,
+        "writes": 10005,
+        "bytes": 30052,
+        "count": 10000
+      }
+    ],
+    "dot-fork-buffered": [
+      {
+        "elapsedMs": 72.58929100000002,
+        "writes": 7,
+        "bytes": 30052,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 68.44670799999999,
+        "writes": 7,
+        "bytes": 30052,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 72.35979099999999,
+        "writes": 7,
+        "bytes": 30052,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 69.773,
+        "writes": 7,
+        "bytes": 30052,
+        "count": 10000
+      },
+      {
+        "elapsedMs": 115.56824999999998,
+        "writes": 7,
+        "bytes": 30053,
+        "count": 10000
+      }
+    ]
+  },
+  "environment": {
+    "cpu": "Apple M2 Max",
+    "logicalCpus": 12,
+    "memoryGiB": 96,
+    "node": "v24.19.0",
+    "date": "2026-10-22",
+    "runner": "5.4.0-speed.2",
+    "core": "10.4.0-speed.1",
+    "note": "Synthetic workloads only. Target app not accessed or run."
+  }
+}

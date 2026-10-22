@@ -14,7 +14,7 @@ npm run bench:discovery
 npm run bench:runner
 ```
 
-Run benchmarks sequentially with other CPU-heavy work stopped. `bench:prepare` extracts the upstream v5.3.0 and v5.4.0 tags into the ignored `.benchmarks` directory, then builds both using this checkout's dependency tree. These comparisons isolate runner changes; they do not reproduce historical transitive dependency versions. Tested dependencies include `@japa/core@10.4.0`, `@japa/errors-printer@4.1.4`, and `@poppinss/string@1.7.2`.
+Run benchmarks sequentially with other CPU-heavy work stopped. `bench:prepare` extracts the upstream v5.3.0 and v5.4.0 tags into the ignored `.benchmarks` directory, then builds both against a separate registry dependency tree under `.benchmarks/upstream-deps`, pinned to `@japa/core@10.4.0`. The reference runners do not use the workspace core fork. Other transitive versions are resolved at preparation time; these are not historical lockfile reproductions. Tested dependencies include `@japa/core@10.4.0`, `@japa/errors-printer@4.1.4`, and `@poppinss/string@1.7.2`.
 
 The portable fixture generates 1,064 filenames across unit, functional, and browser layouts. Optionally supply a directory of tests to reproduce another layout:
 
@@ -42,7 +42,7 @@ Before enabling concurrent application tests, arrange per-worker database owners
 
 Start at two workers, compare four and six, and require unchanged test selection, expected failures/exit codes, cleanup and repeated outcomes. The application-level profiler should measure boot, plugins, discovery/imports, migration/seed hooks, execution, reporting and process exit separately. Avoid assigning a speedup from these runner measurements to those unmeasured phases.
 
-## Measured results (2026-10-22)
+## Initial speed.1 results (2026-10-22)
 
 Apple M2 Max, 12 logical CPUs, 96 GiB RAM, Node 24.19.0. The locally captured layout contained 1,066 files by benchmark time. No other target repository activity was stopped or changed. Shared-machine load varied substantially; the ranges overlap, so whole-process improvements are inconclusive. The earlier low-load pilot showed approximately 15–20 ms saved in a filtered process, but the final measured rounds do not establish that as a reliable improvement.
 
@@ -65,7 +65,7 @@ Filtering took about 57% less time than 5.3 and 60% less than 5.4 in the final s
 
 Four and six workers had similar medians under this load. This suggests testing four before six on an isolated application copy; it is not a worker-count recommendation for shared application resources. Raw per-round measurements and child-process metrics are in [results/discovery.json](results/discovery.json) and [results/runner.json](results/runner.json).
 
-## Build artifact
+## Initial build artifact (speed.1)
 
 The fork uses version `5.4.0-speed.1` to distinguish it from upstream. Build and create a local installable tarball with:
 
@@ -75,3 +75,46 @@ npm pack --ignore-scripts --pack-destination .benchmarks
 ```
 
 No registry publication or target-application installation is performed. The tarball exports the same package entrypoints and includes the existing upstream `--shard` support. Keep worker concurrency disabled when eventually testing it against shared application infrastructure.
+
+
+## Additional speed.2 features (2026-10-22)
+
+Run `npm run build`, `npm run bench:prepare`, and `npm run bench:features`
+sequentially. The feature benchmark uses one warm-up and five measured rounds,
+rotating scenario order, with fresh Node processes. Reporter writes are forwarded
+to a real pipe drained by the parent. Registration, execution, and reporter
+workloads use 10,000 synthetic tests; core timers stay enabled at 2,000 ms.
+Startup measures module import inside a fresh process, with a resolve hook counting
+loaded modules; it does not include process launch or Adonis startup.
+
+| Measurement | Upstream/reference median | Fork median |
+| --- | ---: | ---: |
+| Runner import vs 5.4 | 59.47 ms | 44.10 ms |
+| Resolved startup modules | 92 | 59 |
+| Core execution, default stacks | 67.11 ms | 54.17 ms |
+| Core registration, stacks disabled vs upstream default | 23.66 ms | 6.21 ms |
+| Spec reporter + execution, buffered vs 5.4 | 123.36 ms | 73.00 ms |
+| Dot reporter + execution, buffered vs 5.4 | 109.95 ms | 72.36 ms |
+| Skewed workload, two workers, round-robin vs duration estimates | 229.86 ms | 162.70 ms |
+
+The same fork with immediate output took 116.37 ms (spec) and 96.07 ms (dot),
+so the differences against upstream also include core execution changes. Spec
+writes fell from 10,004 to a median of 27; dot writes from 10,005 to 7.
+
+The skewed workload has four files awaiting 80, 4, 70 and 8 ms. Both scenarios run
+all four tests across two processes, including parent-observed process launch
+and exit. Duration estimates reduce the planned largest shard from 150 to 82 ms.
+This demonstrates scheduling on a deliberately uneven synthetic workload, not
+application throughput.
+
+The startup check confirms that errors-printer is absent from successful module
+imports. The core benchmark compares published `@japa/core@10.4.0` with the local
+fork; default registration retains stacks, while the explicit no-stacks variant
+trades runner-generated declaration diagnostics for lower allocation cost.
+Numbers describe individual workloads and must not be added together as a total
+application speedup. Full samples/ranges are in [results/features.json](results/features.json).
+
+`npm run bench:smoke` separately checks all reporter and error paths. See
+[PERFORMANCE.md](../PERFORMANCE.md) for opt-ins, history collection, defaults,
+validation, and the two-package installation requirement. No target app was
+accessed or run for these feature experiments.

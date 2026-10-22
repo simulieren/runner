@@ -7,6 +7,8 @@
  * file that was distributed with this source code.
  */
 
+import { relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import validator from './validator.js'
 import { FilesManager } from './files_manager.js'
 import type { NamedReporterContract, NormalizedConfig, TestFiles, TestSuite } from './types.js'
@@ -62,6 +64,11 @@ export class Planner {
       return
     }
 
+    if (Object.keys(this.#config.shardDurations).length) {
+      this.#applyBalancedShard(suites, shard)
+      return
+    }
+
     let index = 0
     for (let suite of suites) {
       suite.filesURLs = suite.filesURLs.filter(() => {
@@ -70,6 +77,53 @@ export class Planner {
         return belongsToShard
       })
     }
+  }
+
+  /** Assign longest estimated files first, then retain original import order. */
+  #applyBalancedShard(
+    suites: (TestSuite & { filesURLs: URL[] })[],
+    shard: { current: number; total: number }
+  ) {
+    const durations = this.#config.shardDurations
+    const known = Object.values(durations)
+      .filter((value) => value > 0)
+      .sort((a, b) => a - b)
+    const fallback = known[Math.floor(known.length / 2)] ?? 1
+    const files = suites.flatMap((suite, suiteIndex) =>
+      suite.filesURLs.map((url, fileIndex) => {
+        const path = relative(this.#config.cwd, fileURLToPath(url)).split('\\').join('/')
+        return {
+          suiteIndex,
+          fileIndex,
+          duration: durations[`${suite.name}:${path}`] ?? durations[path] ?? fallback,
+        }
+      })
+    )
+    const loads = Array.from({ length: Math.min(shard.total, files.length) }, () => ({
+      duration: 0,
+      count: 0,
+    }))
+    const selected = new Set<string>()
+    for (const file of files.sort(
+      (a, b) => b.duration - a.duration || a.suiteIndex - b.suiteIndex || a.fileIndex - b.fileIndex
+    )) {
+      let worker = 0
+      for (let i = 1; i < loads.length; i++) {
+        if (
+          loads[i].duration < loads[worker].duration ||
+          (loads[i].duration === loads[worker].duration && loads[i].count < loads[worker].count)
+        )
+          worker = i
+      }
+      loads[worker].duration += file.duration
+      loads[worker].count++
+      if (worker === shard.current - 1) selected.add(`${file.suiteIndex}:${file.fileIndex}`)
+    }
+    suites.forEach((suite, suiteIndex) => {
+      suite.filesURLs = suite.filesURLs.filter((_, fileIndex) =>
+        selected.has(`${suiteIndex}:${fileIndex}`)
+      )
+    })
   }
 
   /**

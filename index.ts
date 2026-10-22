@@ -8,7 +8,6 @@
  */
 
 import { fileURLToPath } from 'node:url'
-import { ErrorsPrinter } from '@japa/errors-printer'
 import type { TestExecutor } from '@japa/core/types'
 
 import debug from './src/debug.js'
@@ -75,7 +74,7 @@ const executionPlanState: {
  */
 export function test(title: string, callback?: TestExecutor<TestContext, undefined>) {
   validator.ensureIsInPlanningPhase(executionPlanState.phase)
-  const debuggingError = new Error()
+  const debuggingError = runnerConfig!.captureTestLocations ? new Error() : null
 
   const testInstance = createTest(
     title,
@@ -337,6 +336,7 @@ export async function run() {
   } catch (error) {
     debug('error running tests %O', error)
     await globalHooks.teardown(error, runner)
+    const { ErrorsPrinter } = await import('@japa/errors-printer')
     const printer = new ErrorsPrinter()
     await printer.printError(error)
 

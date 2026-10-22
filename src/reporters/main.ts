@@ -7,11 +7,7 @@
  * file that was distributed with this source code.
  */
 
-import { DotReporter } from './dot.js'
-import { SpecReporter } from './spec.js'
-import { NdJSONReporter } from './ndjson.js'
 import type { BaseReporterOptions, NamedReporterContract } from '../types.js'
-import { GithubReporter } from './github.js'
 
 /**
  * Create an instance of the spec reporter
@@ -19,7 +15,10 @@ import { GithubReporter } from './github.js'
 export const spec: (options?: BaseReporterOptions) => NamedReporterContract = (options) => {
   return {
     name: 'spec',
-    handler: (...args) => new SpecReporter(options).boot(...args),
+    handler: async (...args) => {
+      const { SpecReporter } = await import('./spec.js')
+      new SpecReporter(options).boot(...args)
+    },
   }
 }
 
@@ -29,7 +28,10 @@ export const spec: (options?: BaseReporterOptions) => NamedReporterContract = (o
 export const dot: (options?: BaseReporterOptions) => NamedReporterContract = (options) => {
   return {
     name: 'dot',
-    handler: (...args) => new DotReporter(options).boot(...args),
+    handler: async (...args) => {
+      const { DotReporter } = await import('./dot.js')
+      new DotReporter(options).boot(...args)
+    },
   }
 }
 
@@ -39,7 +41,10 @@ export const dot: (options?: BaseReporterOptions) => NamedReporterContract = (op
 export const ndjson: (options?: BaseReporterOptions) => NamedReporterContract = (options) => {
   return {
     name: 'ndjson',
-    handler: (...args) => new NdJSONReporter(options).boot(...args),
+    handler: async (...args) => {
+      const { NdJSONReporter } = await import('./ndjson.js')
+      new NdJSONReporter(options).boot(...args)
+    },
   }
 }
 
@@ -49,6 +54,18 @@ export const ndjson: (options?: BaseReporterOptions) => NamedReporterContract = 
 export const github: (options?: BaseReporterOptions) => NamedReporterContract = (options) => {
   return {
     name: 'github',
-    handler: (...args) => new GithubReporter(options).boot(...args),
+    handler: async (...args) => {
+      const { GithubReporter } = await import('./github.js')
+      new GithubReporter(options).boot(...args)
+    },
   }
 }
+
+/** Collect execution estimates without loading terminal reporters. */
+export const fileDurations: typeof import('./file_durations.js').fileDurations = (options) => ({
+  name: 'file-durations',
+  handler: async (...args) => {
+    const { fileDurations: createReporter } = await import('./file_durations.js')
+    await createReporter(options).handler(...args)
+  },
+})

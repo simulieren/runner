@@ -1,7 +1,7 @@
 {
   "name": "@japa/runner",
   "description": "A simple yet powerful testing framework for Node.js",
-  "version": "5.4.0-speed.1",
+  "version": "5.4.0-speed.2",
   "engines": {
     "node": ">=18.16.0"
   },
@@ -10,7 +10,8 @@
   "files": [
     "build",
     "!build/examples",
-    "!build/tests"
+    "!build/tests",
+    "PERFORMANCE.md"
   ],
   "exports": {
     ".": "./build/index.js",
@@ -28,7 +29,7 @@
     "typecheck": "tsc --noEmit",
     "clean": "del-cli build",
     "precompile": "npm run lint && npm run clean",
-    "compile": "tsdown && tsc --emitDeclarationOnly --declaration",
+    "compile": "npm run build:core && tsdown && tsc --emitDeclarationOnly --declaration",
     "build": "npm run compile",
     "version": "npm run build",
     "prepublishOnly": "npm run build",
@@ -36,7 +37,11 @@
     "quick:test": "node --import=@poppinss/ts-exec --enable-source-maps --test-reporter=spec --test tests/*.spec.ts",
     "bench:discovery": "node --import=@poppinss/ts-exec benchmarks/discovery.mjs",
     "bench:runner": "node benchmarks/runner.mjs",
-    "bench:prepare": "node benchmarks/prepare.mjs"
+    "bench:prepare": "node benchmarks/prepare.mjs",
+    "build:core": "npm run build --workspace=@japa/core",
+    "test:core": "npm test --workspace=@japa/core",
+    "bench:features": "node benchmarks/features.mjs",
+    "bench:smoke": "node benchmarks/smoke.mjs"
   },
   "devDependencies": {
     "@adonisjs/eslint-config": "^3.0.0-next.9",
@@ -53,12 +58,11 @@
     "eslint": "^9.39.2",
     "prettier": "^3.8.0",
     "release-it": "^19.2.3",
-    "serialize-error": "^13.0.0",
     "tsdown": "^0.19.0",
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@japa/core": "^10.4.0",
+    "@japa/core": "10.4.0-speed.1",
     "@japa/errors-printer": "^4.1.4",
     "@poppinss/colors": "^4.1.6",
     "@poppinss/hooks": "^7.3.0",
@@ -68,7 +72,8 @@
     "find-cache-directory": "^6.0.0",
     "getopts": "^2.3.0",
     "supports-color": "^10.2.2",
-    "timekeeper": "^2.3.1"
+    "timekeeper": "^2.3.1",
+    "serialize-error": "^13.0.0"
   },
   "homepage": "https://github.com/japa/runner#readme",
   "repository": {
@@ -146,5 +151,8 @@
       "src/reporters/**"
     ]
   },
-  "prettier": "@adonisjs/prettier-config"
+  "prettier": "@adonisjs/prettier-config",
+  "workspaces": [
+    "packages/core"
+  ]
 }
