@@ -204,6 +204,16 @@ export async function run() {
      */
     await retryPlugin({ config: runnerConfig!, runner, emitter, cliArgs })
 
+    // The coordinator's environment enables history without an app-config edit.
+    if (
+      process.env.JAPA_SPEED_SNAPSHOT ||
+      process.env.JAPA_SPEED_RUN_ID ||
+      process.env.JAPA_SPEED_OUTPUT
+    ) {
+      const { durationHistory } = await import('./src/duration_history.js')
+      await durationHistory()({ config: runnerConfig!, runner, emitter, cliArgs })
+    }
+
     /**
      * Step 1: Executing plugins before creating a plan, so that it can mutate
      * the config

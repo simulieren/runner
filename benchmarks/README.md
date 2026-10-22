@@ -168,3 +168,17 @@ modest synthetic median improvements, not a guaranteed application speedup. Full
 samples and ranges are in [results/core-paths.json](results/core-paths.json).
 The direct core benchmark omits runner-level active-test hooks and application
 bootstrap. ATS remains unmodified and untested.
+
+
+## Automatic workflow (speed.4)
+
+The hard-coded timing map is no longer needed for normal use. `japa-parallel`
+launches the existing command, assigns shard indices, freezes one history input,
+collects worker results, and promotes learned costs for the next run. The fork
+activates collection automatically for managed workers. Ordinary serial runs
+can opt into `durationHistory()` once. See [PERFORMANCE.md](../PERFORMANCE.md).
+
+This change is validated with isolated synthetic child processes: cold/warm
+runs, cache recovery, filtered selections, concurrent cache changes, duplicate or
+missing worker reports, failed runs, CLI invocation, and cancellation/forced
+shutdown. No ATS test commands or services are involved.

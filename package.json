@@ -1,7 +1,7 @@
 {
   "name": "@japa/runner",
   "description": "A simple yet powerful testing framework for Node.js",
-  "version": "5.4.0-speed.3",
+  "version": "5.4.0-speed.4",
   "engines": {
     "node": ">=18.16.0"
   },
@@ -19,7 +19,8 @@
     "./reporters": "./build/src/reporters/main.js",
     "./plugins": "./build/src/plugins/main.js",
     "./factories": "./build/factories/main.js",
-    "./core": "./build/modules/core/main.js"
+    "./core": "./build/modules/core/main.js",
+    "./parallel": "./build/src/parallel.js"
   },
   "scripts": {
     "pretest": "npm run lint",
@@ -42,7 +43,8 @@
     "test:core": "npm test --workspace=@japa/core",
     "bench:features": "node benchmarks/features.mjs",
     "bench:smoke": "node benchmarks/smoke.mjs",
-    "bench:core-paths": "node benchmarks/core_paths.mjs"
+    "bench:core-paths": "node benchmarks/core_paths.mjs",
+    "bench:automatic": "node benchmarks/automatic_smoke.mjs"
   },
   "devDependencies": {
     "@adonisjs/eslint-config": "^3.0.0-next.9",
@@ -72,9 +74,9 @@
     "error-stack-parser-es": "^1.0.5",
     "find-cache-directory": "^6.0.0",
     "getopts": "^2.3.0",
+    "serialize-error": "^13.0.0",
     "supports-color": "^10.2.2",
-    "timekeeper": "^2.3.1",
-    "serialize-error": "^13.0.0"
+    "timekeeper": "^2.3.1"
   },
   "homepage": "https://github.com/japa/runner#readme",
   "repository": {
@@ -102,7 +104,9 @@
       "./src/plugins/main.ts",
       "./src/reporters/main.ts",
       "./factories/main.ts",
-      "./modules/core/main.ts"
+      "./modules/core/main.ts",
+      "./src/parallel.ts",
+      "./bin/parallel.ts"
     ],
     "outDir": "./build",
     "clean": true,
@@ -155,5 +159,8 @@
   "prettier": "@adonisjs/prettier-config",
   "workspaces": [
     "packages/core"
-  ]
+  ],
+  "bin": {
+    "japa-parallel": "build/bin/parallel.js"
+  }
 }

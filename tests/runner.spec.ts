@@ -8,7 +8,8 @@
  */
 
 import { assert } from 'chai'
-import { test } from 'node:test'
+import { test, type TestContext as NodeTestContext } from 'node:test'
+import { rejects } from 'node:assert/strict'
 
 import { runner } from '../factories/main.js'
 import { GlobalHooks } from '../src/hooks.js'
@@ -838,5 +839,273 @@ test.describe('Runner | disallowPinnedTests plugin', () => {
       assert.isUndefined(fatalError)
       assert.deepEqual(stack, ['executing pinned test'])
     })
+  })
+})
+
+test.describe('Automatic duration history and worker coordination', () => {
+  async function fixture(context: NodeTestContext) {
+    const { mkdtemp, rm, writeFile } = await import('node:fs/promises')
+    const { fileURLToPath } = await import('node:url')
+    const cwd = await mkdtemp(fileURLToPath(new URL('../.automatic-', import.meta.url)))
+    context.after(() => rm(cwd, { recursive: true, force: true }))
+    await writeFile(`${cwd}/package.json`, JSON.stringify({ private: true }))
+    return {
+      cwd,
+      entry: fileURLToPath(new URL('../tests_helpers/automatic_worker.mjs', import.meta.url)),
+      loader: import.meta.resolve('@poppinss/ts-exec'),
+    }
+  }
+  async function serial(cwd: string, entry: string, loader: string, args: string[] = []) {
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    await promisify(execFile)(process.execPath, [`--import=${loader}`, entry, ...args], { cwd })
+  }
+  async function json(file: string): Promise<unknown> {
+    const { readFile } = await import('node:fs/promises')
+    return JSON.parse(await readFile(file, 'utf8'))
+  }
+
+  test('learn and reload timings automatically, recover corrupt history, and avoid partial updates', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { readHistory } = await import('../src/duration_history.js')
+    const { readFile, writeFile } = await import('node:fs/promises')
+    await serial(cwd, entry, loader)
+    const history = await readHistory(`${cwd}/history.json`, cwd, true)
+    assert.lengthOf(Object.keys(history.durations), 6)
+    const saved = await readFile(`${cwd}/history.json`, 'utf8')
+    await serial(cwd, entry, loader, ['--tests=case 0'])
+    assert.equal(await readFile(`${cwd}/history.json`, 'utf8'), saved)
+    assert.containSubset(await json(`${cwd}/observed-serial.json`), {
+      estimates: history.durations,
+      executed: [0],
+    })
+    await writeFile(`${cwd}/history.json`, '{broken')
+    await serial(cwd, entry, loader)
+    const recovered = await readHistory(`${cwd}/history.json`, cwd, true)
+    assert.lengthOf(Object.keys(recovered.durations), 6)
+  })
+
+  test('merge failed tests from workers and rerun the same frozen failure selection', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { runParallel } = await import('../src/parallel.js')
+    const options = {
+      command: process.execPath,
+      args: [`--import=${loader}`, entry],
+      cwd,
+      workers: 2,
+      historyFile: 'history.json',
+      stdio: 'ignore' as const,
+    }
+    const failed = await runParallel({ ...options, env: { TEST_FAIL: '1' } })
+    assert.notEqual(failed.exitCode, 0)
+    assert.isFalse(failed.historyUpdated)
+    const cached = await getFailedTests(cwd)
+    assert.deepEqual(cached.tests?.sort(), ['case 0', 'case 1'])
+    const rerun = await runParallel({ ...options, args: [...options.args, '--failed'] })
+    assert.equal(rerun.exitCode, 0)
+    assert.isFalse(rerun.historyUpdated)
+    const observed = await Promise.all([1, 2].map((id) => json(`${cwd}/observed-${id}.json`)))
+    assert.containSubset(observed, [{ executed: [0] }, { executed: [1] }])
+    const cleared = await getFailedTests(cwd)
+    assert.deepEqual(cleared.tests, [])
+  })
+
+  test('assign shards, merge learned timings, and reuse one snapshot for every worker', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { runParallel } = await import('../src/parallel.js')
+    const { readHistory } = await import('../src/duration_history.js')
+    const options = {
+      command: process.execPath,
+      args: [`--import=${loader}`, entry],
+      cwd,
+      workers: 2,
+      historyFile: 'history.json',
+      stdio: 'ignore' as const,
+    }
+    const first = await runParallel(options)
+    assert.equal(first.exitCode, 0)
+    assert.isTrue(first.historyUpdated)
+    const cold = await Promise.all([1, 2].map((id) => json(`${cwd}/observed-${id}.json`)))
+    assert.containSubset(cold, [
+      { executed: [0, 2, 4], estimates: {} },
+      { executed: [1, 3, 5], estimates: {} },
+    ])
+    const history = await readHistory(`${cwd}/history.json`, cwd, true)
+    assert.lengthOf(Object.keys(history.durations), 6)
+    const second = await runParallel(options)
+    assert.equal(second.exitCode, 0)
+    assert.isTrue(second.historyUpdated)
+    const warm = (await Promise.all([1, 2].map((id) => json(`${cwd}/observed-${id}.json`)))) as {
+      executed: number[]
+      estimates: Record<string, number>
+    }[]
+    assert.deepEqual(warm[0].estimates, history.durations)
+    assert.deepEqual(warm[1].estimates, history.durations)
+    assert.deepEqual(
+      warm.flatMap((row) => row.executed).sort((a, b) => a - b),
+      [0, 1, 2, 3, 4, 5]
+    )
+    assert.notDeepEqual(
+      warm.map((row) => row.executed),
+      [
+        [0, 2, 4],
+        [1, 3, 5],
+      ]
+    )
+  })
+
+  test('leave the cache unchanged on test failure and reject missing or tampered coordination', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { runParallel } = await import('../src/parallel.js')
+    const { readFile, readdir } = await import('node:fs/promises')
+    await serial(cwd, entry, loader)
+    const saved = await readFile(`${cwd}/history.json`, 'utf8')
+    const options = {
+      command: process.execPath,
+      args: [`--import=${loader}`, entry],
+      cwd,
+      workers: 2,
+      historyFile: 'history.json',
+      stdio: 'ignore' as const,
+    }
+    for (const env of [
+      { TEST_FAIL: '1' },
+      { TEST_NO_HISTORY: '1' },
+      { TEST_TAMPER: '1' },
+      { TEST_DUPLICATE_OUTPUT: '1' },
+    ]) {
+      const result = await runParallel({ ...options, env })
+      assert.notEqual(result.exitCode, 0)
+      assert.isFalse(result.historyUpdated)
+      assert.equal(await readFile(`${cwd}/history.json`, 'utf8'), saved)
+      const names = await readdir(cwd)
+      assert.deepEqual(
+        names.filter((name) => name.startsWith('run-')),
+        []
+      )
+    }
+  })
+
+  test('propagate spawn errors and cancellation without leaving workers running', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { runParallel } = await import('../src/parallel.js')
+    const { readFile } = await import('node:fs/promises')
+    const failed = await runParallel({
+      command: `${cwd}/missing-command`,
+      cwd,
+      workers: 1,
+      stdio: 'ignore',
+    })
+    assert.equal(failed.exitCode, 1)
+    const controller = new AbortController()
+    const pending = runParallel({
+      command: process.execPath,
+      args: [`--import=${loader}`, entry],
+      cwd,
+      workers: 1,
+      historyFile: 'history.json',
+      stdio: 'ignore',
+      signal: controller.signal,
+      env: { TEST_HANG: '1' },
+    })
+    let pid: number | undefined
+    for (let attempt = 0; attempt < 500; attempt++) {
+      try {
+        pid = (JSON.parse(await readFile(`${cwd}/started-1.json`, 'utf8')) as { pid: number }).pid
+        break
+      } catch {
+        await new Promise((done) => setTimeout(done, 10))
+      }
+    }
+    controller.abort()
+    const stopped = await pending
+    assert.isDefined(pid)
+    assert.equal(stopped.exitCode, 130)
+    assert.throws(() => process.kill(pid!, 0))
+  })
+
+  test('keep the planning snapshot stable when another run updates the cache', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { runParallel } = await import('../src/parallel.js')
+    const { readHistory, writeHistory } = await import('../src/duration_history.js')
+    const { readFile, writeFile } = await import('node:fs/promises')
+    await serial(cwd, entry, loader)
+    const history = await readHistory(`${cwd}/history.json`, cwd, true)
+    const saved = await readFile(`${cwd}/history.json`, 'utf8')
+    const controller = new AbortController()
+    const pending = runParallel({
+      command: process.execPath,
+      args: [`--import=${loader}`, entry],
+      cwd,
+      workers: 2,
+      historyFile: 'history.json',
+      stdio: 'ignore',
+      signal: controller.signal,
+      workerEnv: (id) => (id === 2 ? { TEST_START_GATE: 'release-worker-2' } : {}),
+    })
+    context.after(async () => {
+      controller.abort()
+      await pending
+    })
+    let finishedFirst = false
+    for (let attempt = 0; attempt < 500; attempt++) {
+      try {
+        await readFile(`${cwd}/observed-1.json`, 'utf8')
+        finishedFirst = true
+        break
+      } catch {
+        await new Promise((done) => setTimeout(done, 10))
+      }
+    }
+    assert.isTrue(finishedFirst)
+    assert.equal(await readFile(`${cwd}/history.json`, 'utf8'), saved)
+    await writeHistory(`${cwd}/history.json`, {
+      ...history,
+      durations: { 'default:future.spec.ts': 9999 },
+    })
+    await writeFile(`${cwd}/release-worker-2`, '')
+    const result = await pending
+    assert.equal(result.exitCode, 0)
+    const second = (await json(`${cwd}/observed-2.json`)) as { estimates: Record<string, number> }
+    assert.deepEqual(second.estimates, history.durations)
+    const merged = await readHistory(`${cwd}/history.json`, cwd, true)
+    assert.equal(merged.durations['default:future.spec.ts'], 9999)
+    assert.lengthOf(Object.keys(merged.durations), 7)
+  })
+
+  test('validate coordinator options and run the CLI without handwritten shard arguments', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { runParallel } = await import('../src/parallel.js')
+    for (const workers of [0, -1, 1.5, 257]) {
+      await rejects(runParallel({ command: process.execPath, cwd, workers }), /workers/)
+    }
+    await rejects(
+      runParallel({ command: process.execPath, args: ['--shard=1/2'], cwd }),
+      /automatically/
+    )
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    const { fileURLToPath } = await import('node:url')
+    const cli = fileURLToPath(new URL('../bin/parallel.ts', import.meta.url))
+    const result = await promisify(execFile)(
+      process.execPath,
+      [
+        `--import=${loader}`,
+        cli,
+        '--workers',
+        '2',
+        '--history=history.json',
+        `--cwd=${cwd}`,
+        '--',
+        process.execPath,
+        `--import=${loader}`,
+        entry,
+      ],
+      { env: { ...process.env, TEST_NO_PLUGIN: '1' } }
+    )
+    assert.include(result.stdout, 'workers=2 exit=0 timings=updated')
+    const { readHistory } = await import('../src/duration_history.js')
+    const history = await readHistory(`${cwd}/history.json`, cwd, true)
+    assert.lengthOf(Object.keys(history.durations), 6)
   })
 })
