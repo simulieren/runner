@@ -409,9 +409,9 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
             ? `was killed by ${worker.signal}`
             : `exited with code ${worker.exitCode}`
           worker.error = missing
-            ? `${ended} before writing its report. Its output above says why. Usual causes: ` +
-              'a teardown hook that calls process.exit(), or an app shutdown that waits on a ' +
-              'connection a test never released. Japa writes the report after teardown.'
+            ? `${ended} before writing its report. Its output above says why. Likely causes: ` +
+              'an app shutdown waiting on a connection a timed-out test still holds, or a ' +
+              'teardown hook that calls process.exit(). Japa writes the report after teardown.'
             : `wrote an unusable report (${String(error)}); is the command running this runner fork?`
           worker.exitCode = worker.exitCode || 1
           exitCode = 1

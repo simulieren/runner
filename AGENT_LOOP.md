@@ -115,11 +115,12 @@ if (Number.isInteger(worker) && worker > 0) {
 
 Things that broke a real app under `japa-parallel` and how they show up:
 
-- A teardown hook that calls `process.exit()` on a timer. Japa writes the worker report
-  after teardown, so the worker exits 0 and the coordinator reports a missing report.
-  Exit only after `run()` resolves.
-- A connection a test never releases. `app.terminate()` waits in the database
-  provider's shutdown, and the worker never finishes. Same symptom.
+- A test that times out while its work keeps running. Japa moves on, but the work still
+  holds a database transaction, so `app.terminate()` waits in the database provider's
+  shutdown and the worker never writes its report. This was the cause in practice.
+- A teardown hook that calls `process.exit()` on a short timer can cut the end phase off
+  the same way, since Japa writes the worker report after teardown. Exit only after
+  `run()` resolves.
 - Vite's WebSocket server. Each worker opens one; set `server.ws: false` under test.
 - Shared process state (`mail.fake()`, sinon stubs, fake clocks). Sharding changes which
   files share a process, so a leak that serial order hid becomes a failure.
