@@ -1288,6 +1288,52 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.deepEqual(map.files['thing.spec.mjs'], ['helper.mjs', 'thing.spec.mjs'])
   })
 
+  test('keep configured reporters under --agent-file, replace them under --agent', async (context) => {
+    const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises')
+    const { fileURLToPath, pathToFileURL } = await import('node:url')
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    const cwd = await mkdtemp(fileURLToPath(new URL('../.agent-file-', import.meta.url)))
+    context.after(() => rm(cwd, { recursive: true, force: true }))
+    const runner = pathToFileURL(fileURLToPath(new URL('../index.ts', import.meta.url))).href
+    await writeFile(`${cwd}/one.spec.ts`, '')
+    await writeFile(
+      `${cwd}/entry.ts`,
+      [
+        `import { writeFileSync } from 'node:fs'`,
+        `import { configure, processCLIArgs, run, test } from '${runner}'`,
+        `processCLIArgs(process.argv.slice(2))`,
+        `const marker = { name: 'marker', handler: (_runner, emitter) => {`,
+        `  emitter.on('runner:end', () => writeFileSync('marker.txt', 'ran'))`,
+        `} }`,
+        `configure({ files: ['one.spec.ts'], reporters: { activated: ['marker'], list: [marker] },`,
+        `  importer: async () => { test('passes', () => {}) } })`,
+        `await run()`,
+      ].join('\n')
+    )
+    const runWith = async (args: string[]) => {
+      await rm(`${cwd}/marker.txt`, { force: true })
+      await promisify(execFile)(
+        process.execPath,
+        ['--import=@poppinss/ts-exec', 'entry.ts', ...args],
+        {
+          cwd,
+        }
+      )
+      return {
+        marker: await readFile(`${cwd}/marker.txt`, 'utf8').catch(() => null),
+        report: await readFile(`${cwd}/report.jsonl`, 'utf8').catch(() => ''),
+      }
+    }
+
+    const toFile = await runWith(['--agent-file=report.jsonl'])
+    assert.equal(toFile.marker, 'ran')
+    assert.include(toFile.report, '"event":"summary"')
+
+    const toStdout = await runWith(['--agent'])
+    assert.isNull(toStdout.marker)
+  })
+
   test('count only imports Node resolves when checking the graph', async () => {
     const { hasRuntimeRelativeImport } = await import('../src/dependencies.js')
     assert.isTrue(hasRuntimeRelativeImport("import { a } from './a.js'"))

@@ -29,7 +29,7 @@ npx japa-parallel --workers=auto -- node --import=@poppinss/ts-exec bin/test.ts
 | `--changed=path,path` | Explicit paths, relative to the application directory. |
 | `--cache-dir=path` | Directory for both caches. Defaults to `node_modules/.cache/japa`. |
 | `--agent` | Emit bounded JSON lines for failures, skipped and todo tests, plus a summary. |
-| `--agent-file=path` | Write that JSON to a file, keeping application stdout separate. |
+| `--agent-file=path` | Write that JSON to a file. Without `--agent`, the configured reporters keep running alongside it. |
 | `--allow-known-failures` | Exit 0 when the only failures match `japa.baseline.json`. |
 | `--update-baseline` | Record this run's failures. Only a full run writes. |
 | `--failed-new` | With `--failed`, skip titles already in the baseline. |
@@ -97,5 +97,9 @@ rest from them in the test bootstrap.
 
 - Dependency recording uses `module.registerHooks`. On older Node the map is
   unavailable and `--changed` runs the full suite.
+- An app that loads modules before `configure()` (AdonisJS boots providers and
+  preloads first) must call `recordImportsFromStart()` at the top of its test
+  entrypoint. Otherwise those modules' imports are never seen and the map stays
+  incomplete, so `--changed` always runs the full suite.
 - Application boot remains the floor for targeted runs.
 - Caches are per application directory and are safe to delete.

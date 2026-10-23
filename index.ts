@@ -174,14 +174,19 @@ export function configure(options: Config) {
    * `--agent` replaces the reporters with a machine-readable one. It has to be
    * decided before the config is normalized, because the runner receives the
    * reporter list then, and mixing human and agent output confuses both readers.
+   * `--agent-file` alone keeps stdout free of agent JSON, so it adds the agent
+   * reporter and leaves the configured ones (result files, guards) running.
    */
   if (cliArgs.reporterAgent || cliArgs.agentFile) {
     const configured = options.reporters ?? { activated: [], list: [] }
     const alreadyAgent = configured.activated.includes('agent')
+    const activated = cliArgs.reporterAgent
+      ? ['agent']
+      : [...new Set([...configured.activated, 'agent'])]
     options = {
       ...options,
       reporters: {
-        activated: ['agent'],
+        activated,
         list: alreadyAgent
           ? (configured.list ?? [])
           : [
