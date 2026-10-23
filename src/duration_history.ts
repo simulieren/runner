@@ -57,19 +57,6 @@ export function blendDuration(previous: number | undefined, measured: number) {
   return Math.round((previous + HISTORY_ALPHA * (measured - previous)) * 1000) / 1000
 }
 
-/**
- * Estimated `runner:end` work: reporting, hook teardown and the child's own exit.
- *
- * File estimates only sum test durations, so a loaded worker looks as if it has
- * spare room while it is still finishing the run. Charging the slowest observed
- * overrun keeps the planning penalty proportional to real observed cost.
- */
-export function overheadFor(durations: DurationMap) {
-  let max = 0
-  for (const value of Object.values(durations)) if (value > max) max = value
-  return Math.min(5000, Math.round(max * 0.05))
-}
-
 export function parseHistory(value: unknown, cwd: string): History {
   if (
     !value ||

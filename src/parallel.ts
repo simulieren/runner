@@ -79,7 +79,6 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
   const file = historyFile(cwd, options.historyFile)
   const history = await readHistory(file, cwd)
   const failed = await getFailedTests(cwd).catch(() => ({}) as { tests?: string[] })
-  if (options.updateBaseline) process.env.JAPA_SPEED_COLLECT_FAILURES = '1'
   const runId = randomUUID()
   // Evaluate environment callbacks before spawning anything, so a configuration
   // error cannot leave a partially launched pool behind.

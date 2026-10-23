@@ -1365,7 +1365,7 @@ test.describe('Automatic duration history and worker coordination', () => {
 
   test('japa-agent prepares caches and runs through the agent reporter', async (context) => {
     const { cwd, entry, loader } = await fixture(context)
-    const { readFile, writeFile } = await import('node:fs/promises')
+    const { readFile, readdir, writeFile } = await import('node:fs/promises')
     for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
     const { execFile } = await import('node:child_process')
     const { promisify } = await import('node:util')
@@ -1381,6 +1381,8 @@ test.describe('Automatic duration history and worker coordination', () => {
         cwd,
         '--out',
         'report.jsonl',
+        '--cache-dir',
+        '.japa',
         '--',
         process.execPath,
         `--import=${loader}`,
@@ -1405,285 +1407,18 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.equal(lines.at(-1).ok, true)
     // No git repository, so --changed=auto falls back to everything.
     assert.equal(lines.at(-1).selection.fallback, true)
-  })
 
-  test('never write a baseline from a partial serial selection', async (context) => {
-    const { cwd, entry, loader } = await fixture(context)
-    const { readFile, writeFile } = await import('node:fs/promises')
-    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
-    const { execFile } = await import('node:child_process')
-    const { promisify } = await import('node:util')
-    const run = (args: string[]) =>
-      promisify(execFile)(process.execPath, [`--import=${loader}`, entry, ...args], {
-        cwd,
-        env: { ...process.env, TEST_FAIL: '1' },
-      }).catch(() => {})
-
-    await run(['--update-baseline'])
-    const full = JSON.parse(await readFile(`${cwd}/japa.baseline.json`, 'utf8'))
-    assert.equal(full.failures.length, 2)
-
-    // A title filter is a slice of the suite and must not replace the baseline.
-    await run(['--update-baseline', '--tests=case 0'])
-    const after = JSON.parse(await readFile(`${cwd}/japa.baseline.json`, 'utf8'))
-    assert.deepEqual(after, full)
-  })
-
-  test('merge baseline failures once in the coordinator, not per worker', async (context) => {
-    const { cwd, entry, loader } = await fixture(context)
-    const { readFile } = await import('node:fs/promises')
-    const { runParallel } = await import('../src/parallel.js')
-    const options = {
-      command: process.execPath,
-      args: [`--import=${loader}`, entry, '--update-baseline'],
-      cwd,
-      workers: 2,
-      historyFile: 'history.json',
-      stdio: 'ignore' as const,
-      updateBaseline: true,
-    }
-    const result = await runParallel({ ...options, env: { TEST_FAIL: '1' } })
-    assert.notEqual(result.exitCode, 0)
-    assert.isTrue(result.baselineUpdated)
-
-    const baseline = JSON.parse(await readFile(`${cwd}/japa.baseline.json`, 'utf8'))
-    assert.deepEqual(baseline.failures.map((failure: { file: string }) => failure.file).sort(), [
-      'file0.spec.ts',
-      'file1.spec.ts',
-    ])
-
-    // A partial selection must not replace the baseline with a slice.
-    const { rm } = await import('node:fs/promises')
-    await rm(`${cwd}/japa.baseline.json`)
-    const partial = await runParallel({
-      ...options,
-      args: [...options.args, '--tests=case 0'],
-      env: { TEST_FAIL: '1' },
-    })
-    assert.isFalse(partial.baselineUpdated)
-  })
-
-  test('record source dependencies of an imported test file', async (context) => {
-    const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises')
-    const { pathToFileURL, fileURLToPath } = await import('node:url')
-    const cwd = await mkdtemp(fileURLToPath(new URL('../.deps-', import.meta.url)))
-    context.after(() => rm(cwd, { recursive: true, force: true }))
-    await writeFile(`${cwd}/helper.mjs`, 'export const marker = 1\n')
-    await writeFile(
-      `${cwd}/thing.spec.mjs`,
-      "import { marker } from './helper.mjs'\nexport default marker\n"
-    )
-
-    const { recordDependencies } = await import('../src/dependencies.js')
-    const { dependencyFile } = await import('../src/cache_paths.js')
-    const listeners = new Map<string, (payload?: unknown) => boolean | void>()
-    const emitter = {
-      on: (name: string, fn: (payload?: unknown) => boolean | void) => {
-        listeners.set(name, fn)
-        return () => listeners.delete(name)
-      },
-      once: (name: string, fn: (payload?: unknown) => boolean | void) => {
-        listeners.set(name, fn)
-      },
-    }
-    const config = {
-      cwd,
-      importer: async (url: URL) => {
-        await import(url.href)
-      },
-    }
-    await recordDependencies()({
-      config,
-      emitter,
-    } as never)
-
-    await config.importer(pathToFileURL(`${cwd}/thing.spec.mjs`))
-    listeners.get('runner:end')?.()
-    await new Promise((done) => setTimeout(done, 100))
-
-    const map = JSON.parse(await readFile(dependencyFile(cwd), 'utf8'))
-    assert.deepEqual(map.files['thing.spec.mjs'], ['helper.mjs', 'thing.spec.mjs'])
-  })
-
-  test('record a complete entry for every imported file, filtered or not', async (context) => {
-    const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises')
-    const { fileURLToPath } = await import('node:url')
-    const cwd = await mkdtemp(fileURLToPath(new URL('../.index-', import.meta.url)))
-    context.after(() => rm(cwd, { recursive: true, force: true }))
-    await writeFile(`${cwd}/file.spec.ts`, '')
-
-    const { writeSelectionIndex } = await import('../src/selection_index.js')
-    const { indexFile } = await import('../src/cache_paths.js')
-    // Importing registers every test in the file, whatever the filter is.
-    const registered = {
-      suites: [
-        {
-          name: 'default',
-          stack: [
-            {
-              title: 'group',
-              tests: [
-                {
-                  options: {
-                    title: 'the title',
-                    tags: [],
-                    meta: { fileName: `${cwd}/file.spec.ts`, group: { title: 'group' } },
-                  },
-                },
-                {
-                  options: {
-                    title: 'the other title',
-                    tags: [],
-                    meta: { fileName: `${cwd}/file.spec.ts`, group: { title: 'group' } },
-                  },
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    }
-    await writeSelectionIndex(registered as never, cwd)
-    const index = JSON.parse(await readFile(indexFile(cwd), 'utf8'))
-    assert.deepEqual(index.files['file.spec.ts'].tests, ['the title', 'the other title'])
-    assert.deepEqual(index.files['file.spec.ts'].groups, ['group'])
-  })
-
-  test('use tracked cache files instead of the default cache directory', async (context) => {
-    const { cwd, entry, loader } = await fixture(context)
-    const { access, readFile, readdir, rm, writeFile } = await import('node:fs/promises')
-    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
-    const { execFile } = await import('node:child_process')
-    const { promisify } = await import('node:util')
-    const flags = ['--cache-dir=.japa']
-
-    await promisify(execFile)(
-      process.execPath,
-      [`--import=${loader}`, entry, '--prepare-caches', ...flags],
-      {
-        cwd,
-      }
-    )
-    const tracked = await readdir(`${cwd}/.japa`)
+    // The wrapper must honour --cache-dir for caches and metrics.
+    const cache = await readdir(`${cwd}/.japa`)
     assert.equal(
-      tracked.some((name) => name.startsWith('index-')),
+      cache.some((name) => name.startsWith('index-')),
       true
     )
     assert.equal(
-      tracked.some((name) => name.startsWith('dependencies-')),
+      cache.some((name) => name.startsWith('dependencies-')),
       true
     )
-    // Preparing caches must not run application setup hooks.
-    const setupRanDuringPrepare = await access(`${cwd}/setup-ran.json`).then(
-      () => true,
-      () => false
-    )
-    assert.isFalse(setupRanDuringPrepare)
-    const defaultCache = await readdir(`${cwd}/node_modules/.cache/japa`).catch(() => [])
-    assert.equal(
-      defaultCache.some((name) => name.startsWith('index-') || name.startsWith('dependencies-')),
-      false
-    )
-
-    // Removing the default cache must not lose selection: the tracked files are used.
-    await rm(`${cwd}/node_modules/.cache/japa`, { recursive: true, force: true })
-    await promisify(execFile)(
-      process.execPath,
-      [
-        `--import=${loader}`,
-        entry,
-        '--tests=case 3',
-        ...flags,
-        '--agent',
-        '--agent-file=report.jsonl',
-      ],
-      {
-        cwd,
-        env: {
-          ...process.env,
-          JAPA_AGENT_ALL: '1',
-          TEST_OBSERVED: `${cwd}/observed-serial.json`,
-        },
-      }
-    )
-    await access(`${cwd}/setup-ran.json`)
-    const observed = JSON.parse(await readFile(`${cwd}/observed-serial.json`, 'utf8'))
-    assert.deepEqual(observed.executed, [3])
-    const report = await readFile(`${cwd}/report.jsonl`, 'utf8')
-    const summary = report
-      .trim()
-      .split('\n')
-      .map((line) => JSON.parse(line))
-      .at(-1)
-    assert.equal(summary.selection.skipped, 5)
-
-    // The same filter without the index must select the same test.
-    await promisify(execFile)(
-      process.execPath,
-      [
-        `--import=${loader}`,
-        entry,
-        '--tests=case 3',
-        ...flags,
-        '--agent',
-        '--agent-file=noindex.jsonl',
-      ],
-      {
-        cwd,
-        env: {
-          ...process.env,
-          JAPA_NO_SELECTION_INDEX: '1',
-          JAPA_AGENT_ALL: '1',
-          TEST_OBSERVED: `${cwd}/observed-noindex.json`,
-        },
-      }
-    )
-    const noIndex = JSON.parse(await readFile(`${cwd}/observed-noindex.json`, 'utf8'))
-    assert.deepEqual(noIndex.executed, observed.executed)
-  })
-
-  test('japa-agent prepares caches and runs through the agent reporter', async (context) => {
-    const { cwd, entry, loader } = await fixture(context)
-    const { readFile, writeFile } = await import('node:fs/promises')
-    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
-    const { execFile } = await import('node:child_process')
-    const { promisify } = await import('node:util')
-    const { fileURLToPath } = await import('node:url')
-
-    const wrapper = fileURLToPath(new URL('../bin/agent.ts', import.meta.url))
-    const result = await promisify(execFile)(
-      process.execPath,
-      [
-        `--import=${loader}`,
-        wrapper,
-        '--cwd',
-        cwd,
-        '--out',
-        'report.jsonl',
-        '--',
-        process.execPath,
-        `--import=${loader}`,
-        entry,
-      ],
-      { cwd }
-    ).then(
-      (value) => ({ code: 0, stderr: value.stderr }),
-      (error: { code?: number; stderr?: string }) => ({
-        code: error.code ?? 1,
-        stderr: error.stderr,
-      })
-    )
-    assert.equal(result.code, 0, result.stderr)
-
-    const raw = await readFile(`${cwd}/report.jsonl`, 'utf8')
-    const lines = raw
-      .trim()
-      .split('\n')
-      .map((line) => JSON.parse(line))
-    assert.equal(lines.at(-1).event, 'summary')
-    assert.equal(lines.at(-1).ok, true)
-    // No git repository, so --changed=auto falls back to everything.
-    assert.equal(lines.at(-1).selection.fallback, true)
+    assert.equal(cache.includes('agent-metrics.jsonl'), true)
   })
 
   test('never write a baseline from a partial serial selection', async (context) => {

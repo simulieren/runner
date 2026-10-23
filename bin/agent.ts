@@ -32,6 +32,7 @@ type Options = {
   timeout?: number
   report: boolean
   metrics: boolean
+  cacheDir?: string
 }
 
 const SELECTION_FLAGS = /^--(tests|groups|tags|files|failed|changed)(=|$)/
@@ -47,6 +48,8 @@ function parse(argv: string[]): { options: Options; command: string[] } {
     else if (arg === '--no-prepare') options.prepare = false
     else if (arg === '--report') options.report = true
     else if (arg === '--no-metrics') options.metrics = false
+    else if (arg.startsWith('--cache-dir=')) options.cacheDir = arg.slice('--cache-dir='.length)
+    else if (arg === '--cache-dir') options.cacheDir = head[++index]
     else if (arg.startsWith('--cwd=')) options.cwd = arg.slice('--cwd='.length)
     else if (arg === '--cwd') options.cwd = head[++index]
     else if (arg.startsWith('--out=')) options.out = arg.slice('--out='.length)
@@ -77,8 +80,18 @@ function run(command: string, args: string[], cwd: string, timeout?: number) {
   })
 }
 
-async function hasCaches(cwd: string) {
-  const directory = join(cwd, 'node_modules/.cache/japa')
+/** Japa's cache directory, honouring --cache-dir in either the wrapper or the command. */
+function cacheDirectory(cwd: string, args: string[], explicit?: string) {
+  let dir = explicit
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]
+    if (arg.startsWith('--cache-dir=')) dir = arg.slice('--cache-dir='.length)
+    else if (arg === '--cache-dir') dir = args[++index]
+  }
+  return dir ? resolve(cwd, dir) : join(cwd, 'node_modules/.cache/japa')
+}
+
+async function hasCaches(directory: string) {
   const names = await readdir(directory).catch(() => [] as string[])
   return (
     names.some((name) => name.startsWith('index-')) &&
@@ -86,8 +99,8 @@ async function hasCaches(cwd: string) {
   )
 }
 
-function metricsFile(cwd: string) {
-  return join(cwd, 'node_modules/.cache/japa/agent-metrics.jsonl')
+function metricsFile(directory: string) {
+  return join(directory, 'agent-metrics.jsonl')
 }
 
 type Metric = {
@@ -102,8 +115,8 @@ type Metric = {
   fixed: number
 }
 
-async function readMetrics(cwd: string): Promise<Metric[]> {
-  const text = await readFile(metricsFile(cwd), 'utf8').catch(() => '')
+async function readMetrics(directory: string): Promise<Metric[]> {
+  const text = await readFile(metricsFile(directory), 'utf8').catch(() => '')
   return text
     .split('\n')
     .filter(Boolean)
@@ -143,7 +156,8 @@ async function main() {
   const { options, command } = parse(process.argv.slice(2))
   if (options.report) {
     const cwd = await realpath(options.cwd ? resolve(options.cwd) : process.cwd())
-    console.log(JSON.stringify(summarize(await readMetrics(cwd)), null, 2))
+    const directory = cacheDirectory(cwd, command, options.cacheDir)
+    console.log(JSON.stringify(summarize(await readMetrics(directory)), null, 2))
     return 0
   }
   if (!command.length) {
@@ -157,13 +171,22 @@ async function main() {
   const [executable, ...args] = command
   const startedAt = performance.now()
   let prepareMs = 0
+  const directory = cacheDirectory(cwd, args, options.cacheDir)
+  const cacheArgs =
+    options.cacheDir && !args.some((arg) => arg === '--cache-dir' || arg.startsWith('--cache-dir='))
+      ? [`--cache-dir=${options.cacheDir}`]
+      : []
   const selectionGiven = args.some((arg) => SELECTION_FLAGS.test(arg))
 
-  if (options.prepare && !(await hasCaches(cwd))) {
+  if (options.prepare && !(await hasCaches(directory))) {
     // Build both caches once. Selection flags are stripped so the index covers
     // every file rather than only the ones a filter would have imported.
     const prepareStarted = performance.now()
-    const prepareArgs = [...args.filter((arg) => !SELECTION_FLAGS.test(arg)), '--prepare-caches']
+    const prepareArgs = [
+      ...args.filter((arg) => !SELECTION_FLAGS.test(arg)),
+      ...cacheArgs,
+      '--prepare-caches',
+    ]
     const prepared = await run(executable, prepareArgs, cwd, options.timeout)
     prepareMs = Math.round(performance.now() - prepareStarted)
     if (prepared !== 0) {
@@ -176,7 +199,7 @@ async function main() {
     ? resolve(cwd, options.out)
     : join(cwd, 'node_modules/.cache/japa/agent.jsonl')
   const previous = await readReport(out)
-  const runArgs = [...args, '--agent']
+  const runArgs = [...args, ...cacheArgs, '--agent']
   if (!args.some((arg) => arg.startsWith('--agent-file'))) runArgs.push(`--agent-file=${out}`)
   if (!options.full && !selectionGiven) runArgs.push('--changed=auto')
 
@@ -201,8 +224,8 @@ async function main() {
       newFailures: delta.counts.new,
       fixed: delta.counts.fixed,
     }
-    await mkdir(join(cwd, 'node_modules/.cache/japa'), { recursive: true }).catch(() => {})
-    await appendFile(metricsFile(cwd), `${JSON.stringify(metric)}\n`).catch(() => {})
+    await mkdir(directory, { recursive: true }).catch(() => {})
+    await appendFile(metricsFile(directory), `${JSON.stringify(metric)}\n`).catch(() => {})
   }
 
   process.stderr.write(
