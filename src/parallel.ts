@@ -386,8 +386,14 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
           }
         } catch (error) {
           validReports = false
-          worker.exitCode = 1
-          worker.error = `Unable to collect worker timings; use this runner fork and a test execution command: ${String(error)}`
+          const missing = (error as NodeJS.ErrnoException).code === 'ENOENT'
+          const ended = worker.signal
+            ? `was killed by ${worker.signal}`
+            : `exited with code ${worker.exitCode}`
+          worker.error = missing
+            ? `${ended} before writing its report; its own output above says why`
+            : `wrote an unusable report (${String(error)}); is the command running this runner fork?`
+          worker.exitCode = worker.exitCode || 1
           exitCode = 1
         }
       }
