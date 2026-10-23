@@ -24,6 +24,8 @@ const USER_DEFINED_CONFIG_DATASET: [Config, Config][] = [
     },
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: [],
       filters: {},
       exclude: ['node_modules/**', '.git/**', 'coverage/**'],
@@ -46,6 +48,8 @@ const USER_DEFINED_CONFIG_DATASET: [Config, Config][] = [
     },
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: ['tests/unit/**.spec.ts'],
       filters: {},
       exclude: ['node_modules/**', '.git/**', 'coverage/**'],
@@ -69,6 +73,8 @@ const USER_DEFINED_CONFIG_DATASET: [Config, Config][] = [
     },
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: ['tests/unit/**.spec.ts'],
       filters: {},
       exclude: ['node_modules/**', '.git/**', 'coverage/**'],
@@ -93,6 +99,8 @@ const USER_DEFINED_CONFIG_DATASET: [Config, Config][] = [
     },
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: ['tests/unit/**.spec.ts'],
       filters: {},
       exclude: ['node_modules/**', '.git/**', 'coverage/**'],
@@ -117,6 +125,8 @@ const USER_DEFINED_CONFIG_DATASET: [Config, Config][] = [
     },
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: ['tests/unit/**.spec.ts'],
       filters: {},
       exclude: ['node_modules/**', '.git/**', 'coverage/**'],
@@ -145,6 +155,8 @@ const USER_DEFINED_CONFIG_DATASET: [Config, Config][] = [
     },
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: ['tests/unit/**.spec.ts'],
       filters: {
         tags: ['@integration', '~@slow'],
@@ -177,6 +189,8 @@ const USER_DEFINED_CONFIG_DATASET: [Config, Config][] = [
     },
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: ['tests/unit/**.spec.ts'],
       filters: {
         tags: ['@integration', '~@slow'],
@@ -206,6 +220,8 @@ const USER_DEFINED_CONFIG_DATASET: [Config, Config][] = [
     },
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: [],
       filters: {},
       exclude: ['node_modules/**', '.git/**', 'coverage/**'],
@@ -231,6 +247,8 @@ const USER_DEFINED_CONFIG_DATASET: [Config, Config][] = [
     },
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: [],
       filters: {},
       exclude: ['node_modules/**', '.git/**', 'coverage/**'],
@@ -257,6 +275,8 @@ const USER_DEFINED_CONFIG_DATASET_WITH_CLI_ARGS: [Config, CLIArgs, Config][] = [
     new CliParser().parse([]),
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: [],
       filters: {},
       exclude: ['node_modules/**', '.git/**', 'coverage/**'],
@@ -280,6 +300,8 @@ const USER_DEFINED_CONFIG_DATASET_WITH_CLI_ARGS: [Config, CLIArgs, Config][] = [
     new CliParser().parse(['--tags=@slow']),
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: ['tests/unit/**.spec.ts'],
       filters: {
         tags: ['@slow'],
@@ -306,6 +328,8 @@ const USER_DEFINED_CONFIG_DATASET_WITH_CLI_ARGS: [Config, CLIArgs, Config][] = [
     new CliParser().parse(['--timeout=1000']),
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: ['tests/unit/**.spec.ts'],
       filters: {},
       exclude: ['node_modules/**', '.git/**', 'coverage/**'],
@@ -336,6 +360,8 @@ const USER_DEFINED_CONFIG_DATASET_WITH_CLI_ARGS: [Config, CLIArgs, Config][] = [
     new CliParser().parse(['--timeout=1000']),
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       suites: [
         {
           name: 'unit',
@@ -369,6 +395,8 @@ const USER_DEFINED_CONFIG_DATASET_WITH_CLI_ARGS: [Config, CLIArgs, Config][] = [
     new CliParser().parse(['--retries=4']),
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: ['tests/unit/**.spec.ts'],
       filters: {},
       exclude: ['node_modules/**', '.git/**', 'coverage/**'],
@@ -399,6 +427,8 @@ const USER_DEFINED_CONFIG_DATASET_WITH_CLI_ARGS: [Config, CLIArgs, Config][] = [
     new CliParser().parse(['--retries=4']),
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       suites: [
         {
           name: 'unit',
@@ -432,6 +462,8 @@ const USER_DEFINED_CONFIG_DATASET_WITH_CLI_ARGS: [Config, CLIArgs, Config][] = [
     new CliParser().parse(['--timeout=1000', '--retries=4']),
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: ['tests/unit/**.spec.ts'],
       filters: {},
       exclude: ['node_modules/**', '.git/**', 'coverage/**'],
@@ -461,6 +493,8 @@ const USER_DEFINED_CONFIG_DATASET_WITH_CLI_ARGS: [Config, CLIArgs, Config][] = [
     new CliParser().parse(['--tags=@slow']),
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: ['tests/unit/**.spec.ts'],
       filters: {
         tags: ['@slow'],
@@ -494,6 +528,8 @@ const USER_DEFINED_CONFIG_DATASET_WITH_CLI_ARGS: [Config, CLIArgs, Config][] = [
     new CliParser().parse(['--tests=users']),
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: ['tests/unit/**.spec.ts'],
       filters: {
         tags: ['@integration', '~@slow'],
@@ -527,6 +563,8 @@ const USER_DEFINED_CONFIG_DATASET_WITH_CLI_ARGS: [Config, CLIArgs, Config][] = [
     new CliParser().parse(['--groups=customers']),
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: ['tests/unit/**.spec.ts'],
       filters: {
         tags: ['@integration', '~@slow'],
@@ -560,6 +598,8 @@ const USER_DEFINED_CONFIG_DATASET_WITH_CLI_ARGS: [Config, CLIArgs, Config][] = [
     new CliParser().parse(['--files=*']),
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: ['tests/unit/**.spec.ts'],
       filters: {
         tags: ['@integration', '~@slow'],
@@ -594,6 +634,8 @@ const USER_DEFINED_CONFIG_DATASET_WITH_CLI_ARGS: [Config, CLIArgs, Config][] = [
     new CliParser().parse(['unit', 'functional']),
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: ['tests/unit/**.spec.ts'],
       filters: {
         tags: ['@integration', '~@slow'],
@@ -625,6 +667,8 @@ const USER_DEFINED_CONFIG_DATASET_WITH_CLI_ARGS: [Config, CLIArgs, Config][] = [
     new CliParser().parse(['--reporters', 'progress']),
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: [],
       filters: {},
       exclude: ['node_modules/**', '.git/**', 'coverage/**'],
@@ -652,6 +696,8 @@ const USER_DEFINED_CONFIG_DATASET_WITH_CLI_ARGS: [Config, CLIArgs, Config][] = [
     new CliParser().parse(['--force-exit']),
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: [],
       filters: {},
       exclude: ['node_modules/**', '.git/**', 'coverage/**'],
@@ -679,6 +725,8 @@ const USER_DEFINED_CONFIG_DATASET_WITH_CLI_ARGS: [Config, CLIArgs, Config][] = [
     new CliParser().parse(['--force-exit=true']),
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: [],
       filters: {},
       exclude: ['node_modules/**', '.git/**', 'coverage/**'],
@@ -706,6 +754,8 @@ const USER_DEFINED_CONFIG_DATASET_WITH_CLI_ARGS: [Config, CLIArgs, Config][] = [
     new CliParser().parse(['--force-exit=false']),
     {
       cwd: process.cwd(),
+      captureTestLocations: true,
+      shardDurations: {},
       files: [],
       filters: {},
       exclude: ['node_modules/**', '.git/**', 'coverage/**'],

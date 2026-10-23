@@ -7,66 +7,60 @@
  * file that was distributed with this source code.
  */
 
-import { join } from 'node:path'
-import findCacheDirectory from 'find-cache-directory'
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
-
+import { readFile } from 'node:fs/promises'
 import { colors } from '../helpers.js'
 import type { PluginFn } from '../types.js'
-
-/**
- * Paths to the cache directory and the summary file
- */
-const CACHE_DIR = findCacheDirectory({ name: '@japa/runner' })
-const SUMMARY_FILE = CACHE_DIR ? join(CACHE_DIR, 'summary.json') : undefined
-
-/**
- * Returns an object with the title of the tests failed during
- * the last run.
- */
-export async function getFailedTests(): Promise<{ tests?: string[] }> {
-  try {
-    const summary = await readFile(SUMMARY_FILE!, 'utf-8')
-    return JSON.parse(summary)
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      return {}
-    }
-    throw new Error('Unable to read failed tests cache file', { cause: error })
-  }
-}
-
-/**
- * Writes failing tests to the cache directory
- */
-export async function cacheFailedTests(tests: string[]) {
-  await mkdir(CACHE_DIR!, { recursive: true })
-  await writeFile(SUMMARY_FILE!, JSON.stringify({ tests: tests }))
-}
-
-/**
- * Clears the cache dir
- */
-export async function clearCache() {
-  await unlink(SUMMARY_FILE!)
-}
+import { failedTestsFile, getFailedTests, cacheFailedTests } from './retry_cache.js'
+export { getFailedTests, cacheFailedTests, clearCache } from './retry_cache.js'
 
 /**
  * Exposes the API to run failing tests using the "failed" CLI flag.
  */
 export const retryPlugin: PluginFn = async function retry({ config, cliArgs }) {
-  if (!SUMMARY_FILE) {
+  const managed = Boolean(process.env.JAPA_SPEED_SNAPSHOT || process.env.JAPA_SPEED_RUN_ID)
+  if (!managed && !failedTestsFile(config.cwd)) {
     return
   }
 
-  config.teardown.push(async (runner) => {
-    const summary = runner.getSummary()
-    await cacheFailedTests(summary.failedTestsTitles)
-  })
+  if (!managed) {
+    config.teardown.push(async (runner) => {
+      const summary = runner.getSummary()
+      await cacheFailedTests(summary.failedTestsTitles, config.cwd)
+    })
+  }
 
   if (cliArgs.failed) {
     try {
-      const { tests } = await getFailedTests()
+      let tests: string[] | undefined
+      if (managed) {
+        const snapshot: unknown = JSON.parse(
+          await readFile(process.env.JAPA_SPEED_SNAPSHOT!, 'utf8')
+        )
+        if (
+          !snapshot ||
+          typeof snapshot !== 'object' ||
+          !('failedTests' in snapshot) ||
+          !Array.isArray(snapshot.failedTests) ||
+          !snapshot.failedTests.every((title) => typeof title === 'string')
+        ) {
+          throw new Error('Invalid parallel failed-test snapshot')
+        }
+        tests = snapshot.failedTests
+      } else {
+        const cached = await getFailedTests(config.cwd)
+        tests = cached.tests
+      }
+      /**
+       * With a committed baseline, `--failed-new` skips failures that are already
+       * expected. Matching is by title, because the retry cache stores titles;
+       * opt-in so the imprecise identity can never silently hide a regression.
+       */
+      if (cliArgs.failedNew && tests?.length) {
+        const { readBaseline, baselineFile } = await import('../failure_baseline.js')
+        const baseline = await readBaseline(baselineFile(config.cwd))
+        const known = new Set(baseline.failures.map((entry) => entry.title))
+        if (known.size) tests = tests.filter((title) => !known.has(title))
+      }
       if (!tests || !tests.length) {
         console.log(colors.bgYellow().black(' No failing tests found. Running all the tests '))
         return

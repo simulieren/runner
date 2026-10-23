@@ -51,6 +51,14 @@ export type CLIArgs = {
   help?: boolean
   matchAll?: boolean
   listPinned?: boolean
+  allowKnownFailures?: boolean
+  updateBaseline?: boolean
+  reporterAgent?: boolean
+  changed?: string
+  prepareCaches?: boolean
+  failedNew?: boolean
+  agentFile?: string
+  cacheDir?: string
   bail?: boolean
   bailLayer?: string
   shard?: string
@@ -94,6 +102,12 @@ export type BaseConfig = {
    * the test files
    */
   cwd?: string
+
+  /** Capture declaration stacks for timeout/pinned-test diagnostics. Defaults to true. */
+  captureTestLocations?: boolean
+
+  /** File duration estimates in milliseconds; enables balanced sharding when nonempty. */
+  shardDurations?: Record<string, number>
 
   /**
    * The timeout to apply on all the tests, unless overwritten explicitly
