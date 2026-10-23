@@ -186,6 +186,7 @@ async function main() {
       ...args.filter((arg) => !SELECTION_FLAGS.test(arg)),
       ...cacheArgs,
       '--prepare-caches',
+      '--force-exit',
     ]
     const prepared = await run(executable, prepareArgs, cwd, options.timeout)
     prepareMs = Math.round(performance.now() - prepareStarted)

@@ -415,8 +415,14 @@ export async function run() {
     if (cliArgs.prepareCaches) {
       const { flushDependencies } = await import('./src/dependencies.js')
       await flushDependencies(emitter)
+      // Run teardown so app servers and open handlers do not keep the process
+      // alive after cache preparation.
+      await globalHooks.teardown(null, runner)
       const summary = { event: 'prepare', prepared: true }
       console.log(cliArgs.reporterAgent ? JSON.stringify(summary) : 'Prepared selection caches')
+      // Applications can keep servers or sockets alive; --force-exit makes
+      // one-shot cache preparation terminate cleanly.
+      if (config.forceExit) process.exit(0)
       return
     }
 

@@ -21,7 +21,7 @@ npx japa-agent -- node --import=@poppinss/ts-exec bin/test.ts
 | Flag | Effect |
 | --- | --- |
 | `--prepare-caches` | Import every file and write the selection index and dependency map. Runs no tests and skips global setup hooks. |
-| `--tests`, `--groups`, `--tags` | Filter as before. Files that cannot match are no longer imported. |
+| `--tests`, `--groups`, `--tags` | Filter as before. `--tests` matches exact test titles. Files that cannot match are no longer imported. |
 | `--changed=auto` | Derive changed paths from `git diff --name-only HEAD` plus untracked files. |
 | `--changed=path,path` | Explicit paths, relative to the application directory. |
 | `--cache-dir=path` | Directory for both caches. Defaults to `node_modules/.cache/japa`. |
