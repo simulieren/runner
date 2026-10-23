@@ -27,10 +27,10 @@
     "test": "cross-env NODE_DEBUG=japa:runner c8 npm run quick:test",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "typecheck": "tsc --noEmit && npm run typecheck --workspace=@japa/adonis",
+    "typecheck": "tsc --noEmit",
     "clean": "del-cli build",
     "precompile": "npm run lint && npm run clean",
-    "compile": "npm run build:core && npm run build:adonis && tsdown && tsc --emitDeclarationOnly --declaration",
+    "compile": "npm run build:core && tsdown && tsc --emitDeclarationOnly --declaration",
     "build": "npm run compile",
     "version": "npm run build",
     "prepublishOnly": "npm run build",
@@ -44,14 +44,7 @@
     "bench:features": "node benchmarks/features.mjs",
     "bench:smoke": "node benchmarks/smoke.mjs",
     "bench:core-paths": "node benchmarks/core_paths.mjs",
-    "bench:automatic": "node benchmarks/automatic_smoke.mjs",
-    "bench:timing-cache": "node --import=@poppinss/ts-exec benchmarks/timing_cache.mjs",
-    "bench:selection-index": "node --import=@poppinss/ts-exec benchmarks/selection_index.mjs",
-    "bench:changed-selection": "node --import=@poppinss/ts-exec benchmarks/changed_selection.mjs",
-    "bench:agent-delta": "node --import=@poppinss/ts-exec benchmarks/agent_delta.mjs",
-    "bench:baseline": "node --import=@poppinss/ts-exec benchmarks/baseline.mjs",
-    "bench:cache-lock": "node --import=@poppinss/ts-exec benchmarks/cache_lock.mjs",
-    "build:adonis": "npm run build --workspace=@japa/adonis"
+    "bench:automatic": "node benchmarks/automatic_smoke.mjs"
   },
   "devDependencies": {
     "@adonisjs/eslint-config": "^3.0.0-next.9",
@@ -166,8 +159,7 @@
   },
   "prettier": "@adonisjs/prettier-config",
   "workspaces": [
-    "packages/core",
-    "packages/adonis"
+    "packages/core"
   ],
   "bin": {
     "japa-parallel": "build/bin/parallel.js",

@@ -6,4 +6,3 @@ config.json
 package.json
 *.html
 *.txt
-packages/adonis/dist

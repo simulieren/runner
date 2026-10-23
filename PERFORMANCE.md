@@ -1,10 +1,8 @@
 # Performance fork
 
-Runner `5.4.0-speed.5` uses the checked-in core fork `10.4.0-speed.2` in
-`packages/core`. Both are local prereleases. speed.5 includes the timing-history
-change (failing runs train their passing files) and smoothed estimate updates.
-Default development and synthetic benchmark commands do not modify or run the
-target application.
+Runner `5.4.0-speed.4` uses the checked-in core fork `10.4.0-speed.2` in
+`packages/core`. Both are local prereleases. No target application is modified
+or run by the development or benchmark commands.
 
 ## Changes and defaults
 
@@ -27,97 +25,6 @@ target application.
   logs can appear before earlier buffered progress. NDJSON stays unbuffered.
 - `japa-parallel` launches workers, learns file timings and balances later runs
   automatically. Supplying `shardDurations` manually remains an advanced override.
-
-## Faster iteration for agents and harnesses
-
-See [Using Japa from an agent or harness](AGENT_INTEGRATION.md) for the command
-loop, JSON schema, exit codes and cache-trust rules. `japa-agent` packages that
-loop behind one harness-neutral command: it prepares missing caches, runs the
-affected files, and writes the agent stream.
-
-An agent does not run a suite once. It runs part of it, many times, and pays for
-both the wall time and the output it has to read. Four optional features target
-that loop. All are best-effort and all fall back to the previous behaviour rather
-than changing which tests run.
-
-### Prepare caches (`--prepare-caches`)
-
-Imports every file, writes the selection index and the dependency map, and exits
-without running a test. It is the cheap way to prime a fresh checkout; the two
-caches otherwise stay empty until a full run finishes.
-
-### Selection index (`--tests`, `--groups`, `--tags`)
-
-Title, group and tag filters are normally applied *after* import, so selecting one
-test still imports every file. The first unfiltered run records what each file
-contains under `node_modules/.cache/japa/index-<hash>.json`; later filtered runs
-drop files that cannot match before importing them.
-
-- A file is dropped only when the index proves no test inside it can match.
-- A file whose size or mtime changed since indexing is always imported.
-- A file the index has never seen is always imported, so a new test file cannot
-  be missed by a filter.
-- `JAPA_NO_SELECTION_INDEX=1` disables it; results are identical either way.
-- Entries are written from registration, not execution: importing a file
-  registers all of its tests whatever the filter is, so filtered runs keep entries
-  complete for every file they imported.
-
-Effect: a single-test run imports one file instead of the whole suite. Boot cost
-remains, because the application still has to start.
-
-### Failure baseline (`--allow-known-failures`, `--update-baseline`)
-
-A suite with known-failing tests always exits nonzero, so a harness must work out
-which failures are expected. Commit a `japa.baseline.json` and run with
-`--allow-known-failures` to exit 0 when the only failures are recorded there. Any
-failure not in the baseline still exits 1.
-
-`--update-baseline` records the current failures, sorted, with a consecutive-run
-count; entries that stop failing stay with `consecutive: 0` and are reported as
-fixed., so the file is stable in
-review. It is a deliberate action, not part of a normal run; the write finishes
-before the process exits or any comparison reads the file back. Only a full run
-writes it: a filtered, changed or sharded selection leaves the existing baseline
-untouched, and under the coordinator the workers report failures while the
-coordinator merges and writes once.
-
-Identity is suite + relative file + expanded title, so it survives sharding and
-worker reassignment. A test that did not run is never reported as fixed.
-`--failed-new` additionally drops titles already in the baseline before rerunning,
-for always-red suites; it is opt-in because the retry cache stores titles only.
-
-### Agent reporter (`--agent`)
-
-Replaces the terminal reporters with one JSON object per line: `t: "test"` with
-status, file, group, title, duration and bounded errors, plus a final
-`t: "summary"`. No ANSI, no progress output, and every line is capped so one
-pathological stack cannot flood the reader.
-
-`--agent` emits failing, skipped and todo tests only, because a large suite would
-otherwise produce thousands of passing lines. Set `JAPA_AGENT_ALL=1` or use
-`agent({ onlyFailures: false })` from `@japa/runner/reporters` for the full
-stream. `--agent-file=path` writes the same lines to a file, so application output
-on stdout cannot corrupt the stream. Under the agent reporter, setup and planning
-failures exit 2, while test failures exit 1.
-
-### Change-aware selection (`--changed=path1,path2`)
-
-While a run imports test files, a resume hook records the resolution edge from
-each module to the modules it imports, and the importer marks the test files
-being loaded. The map is written to
-`node_modules/.cache/japa/dependencies.json` as the transitive closure of each
-test file over those edges.
-
-Edges, not load events, are what make this correct: ESM loads a shared module
-only once, so attributing loads would assign it to whichever test file imported
-it first and miss every later importer. A later `--changed=<edited files>` run
-imports the test files whose closure reaches them, including shared modules.
-
-If any given path is not in the map (a new module, a config file, a lockfile),
-Japa runs the full suite instead, because running too much is safe and running too
-little is not. Dependencies accumulate across runs, so a module is not forgotten
-when a later run does not touch it. `--changed=auto` reads the paths from
-`git diff --name-only HEAD` plus untracked files, ignoring build output.
 
 ## Automatic parallel runs
 
@@ -149,28 +56,18 @@ writes to Japa’s failed-test cache.
 
 The fork automatically activates timing collection when launched by this
 coordinator. Commands must use this fork and forward their appended shard flag
-to Japa. `--workers=auto` uses one worker when the command carries a title, group, tag or
-changed-path filter, where extra application boots cost more than they save.
-Default concurrency is otherwise the smaller of four and the available CPU count;
+to Japa. Default concurrency is the smaller of four and the available CPU count;
 `--workers` accepts 1–256. `--workers=4` and `--workers 4` are both accepted.
 
 The default cache is a cwd-specific JSON file under
 `node_modules/.cache/japa/`. Use `--history=path` to select another cache, or
 `--cwd=path` to launch from another application directory. The coordinator cwd
-must match Japa's configured cwd. A run with failing tests still trains: each
-file that contains a failed test keeps its previous estimate, and the other files
-are learned. A failed suite or group hook, a cancelled job, a signal-terminated or
-unreported worker, and partial test-title, group, tag or pinned selections do not
-promote new estimates. File filters can update the selected complete files while
-retaining other known timings.
-
-A new measurement is blended with the previous estimate (half the distance)
-rather than replacing it, so one contended run cannot fully rewrite the next
-assignment. Unknown files adopt the measurement directly.
+must match Japa's configured cwd. Failed/cancelled jobs and partial test-title,
+group, tag, or pinned selections do not promote new estimates. File filters can
+update the selected complete files while retaining other known timings.
 
 Existing cache entries are merged, including when another run has updated the
-cache in the meantime. Cache read-modify-write sequences take a lock, so
-concurrent agents no longer overwrite one another's learned entries. Concurrent jobs use separate snapshots, so changes to the
+cache in the meantime. Concurrent jobs use separate snapshots, so changes to the
 shared cache cannot change an in-progress worker's assignment. Cache updates are
 best-effort; there is no cross-job cache lock, so last-writer-wins can lose some
 training updates in an overlapping write. Each resulting cache is valid JSON,
@@ -184,7 +81,7 @@ inherited from workers and can interleave.
 
 Japa does not provision database, Redis, search, or HTTP-port isolation.
 `JAPA_WORKER_ID` and `JAPA_WORKER_COUNT` are supplied for application configuration.
-Application integration and external resource isolation are intentionally deferred until requested.
+Target-app integration and resource configuration remain deferred until requested.
 
 ## Optional training from ordinary serial runs
 
@@ -200,9 +97,8 @@ configure({
 ```
 
 The plugin loads and saves timings automatically. Missing, corrupt or foreign-cwd
-caches are ignored. It learns on complete selections without suite or group hook
-failures, skipping files that contain a failed test. Filtered file runs preserve
-estimates for other files. Independently launched `--shard`
+caches are ignored. It learns on complete runner-successful selections; filtered
+file runs preserve estimates for other files. Independently launched `--shard`
 commands do not read/write the automatic cache, since they cannot coordinate a
 snapshot. They retain the existing explicit-estimate/round-robin behavior.
 The parallel command does not require this plugin in app configuration.
@@ -260,18 +156,9 @@ npm pack --workspaces=false --ignore-scripts --pack-destination .benchmarks
 ```
 
 The two tarballs are `japa-core-10.4.0-speed.2.tgz` and
-`japa-runner-5.4.0-speed.5.tgz`. Install **both together** into an isolated test
+`japa-runner-5.4.0-speed.4.tgz`. Install **both together** into an isolated test
 project when ready. The runner depends on the unpublished core prerelease;
 installing the runner tarball alone cannot resolve that version from npm.
-
-`--cache-dir` lets both caches live in a tracked path, so a fresh checkout can
-start with them. Cache files use one naming convention:
-`index-<hash>.json`, `durations-<hash>.json` and `dependencies-<hash>.json`. `japa-agent` also writes a delta report
-beside the agent stream. See [the harness guide](AGENT_INTEGRATION.md).
-
-Benchmark probes are available as `npm run bench:timing-cache`,
-`npm run bench:selection-index`, `npm run bench:changed-selection` and
-`npm run bench:agent-delta`.
 
 Fresh production-only installation of both tarballs is checked with the
 same 56-case smoke matrix as the working checkout, plus cold/warm installed-bin
