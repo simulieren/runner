@@ -23,6 +23,7 @@ import { ExceptionsManager } from './src/exceptions_manager.js'
 import { createTest, createTestGroup } from './src/create_test.js'
 import type { CLIArgs, Config, NormalizedConfig } from './src/types.js'
 export type { Baseline, BaselineEntry } from './src/failure_baseline.js'
+export { recordImportsFromStart } from './src/dependencies.js'
 export type { AgentDelta, AgentTestRow, AgentSummary } from './src/agent_delta.js'
 import {
   Emitter,

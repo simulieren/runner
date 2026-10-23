@@ -1288,6 +1288,42 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.deepEqual(map.files['thing.spec.mjs'], ['helper.mjs', 'thing.spec.mjs'])
   })
 
+  test('complete the map for modules an app loads before configure', async (context) => {
+    const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises')
+    const { fileURLToPath, pathToFileURL } = await import('node:url')
+    const cwd = await mkdtemp(fileURLToPath(new URL('../.deps-boot-', import.meta.url)))
+    context.after(() => rm(cwd, { recursive: true, force: true }))
+    await writeFile(`${cwd}/leaf.mjs`, 'export const leaf = 1\n')
+    await writeFile(`${cwd}/booted.mjs`, "export { leaf } from './leaf.mjs'\n")
+    await writeFile(
+      `${cwd}/app.spec.mjs`,
+      "import { leaf } from './booted.mjs'\nexport default leaf\n"
+    )
+
+    const { recordImportsFromStart, recordDependencies } = await import('../src/dependencies.js')
+    const { dependencyFile } = await import('../src/cache_paths.js')
+    assert.isTrue(recordImportsFromStart())
+    // The framework boots, and imports booted.mjs, before Japa is configured.
+    await import(pathToFileURL(`${cwd}/booted.mjs`).href)
+
+    const listeners = new Map<string, () => void>()
+    const emitter = { once: (name: string, fn: () => void) => listeners.set(name, fn) }
+    const config = {
+      cwd,
+      importer: async (url: URL) => {
+        await import(url.href)
+      },
+    }
+    await recordDependencies()({ config, emitter, cliArgs: { prepareCaches: true } } as never)
+    await config.importer(pathToFileURL(`${cwd}/app.spec.mjs`))
+    listeners.get('runner:end')?.()
+    await new Promise((done) => setTimeout(done, 100))
+
+    const map = JSON.parse(await readFile(dependencyFile(cwd), 'utf8'))
+    assert.deepEqual(map.files['app.spec.mjs'], ['app.spec.mjs', 'booted.mjs', 'leaf.mjs'])
+    assert.isTrue(map.complete)
+  })
+
   test('record a complete entry for every imported file, filtered or not', async (context) => {
     const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises')
     const { fileURLToPath } = await import('node:url')

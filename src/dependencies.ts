@@ -38,6 +38,49 @@ async function hasRelativeImports(path: string) {
   return /(?:\bfrom\s+|\bimport\s*\(|\brequire\s*\()\s*['"]\.{1,2}\//.test(source)
 }
 
+type ImportEdges = Map<string, Set<string>>
+
+/** Importer -> imported URLs seen by the resolve hook, once it is registered. */
+let processEdges: ImportEdges | undefined
+
+function registerResolveHook(): ImportEdges | undefined {
+  // Node 22.15+/23.5+ ship registerHooks. On older supported versions the
+  // dependency map is simply unavailable; --changed then runs everything.
+  const hooks = nodeModule as { registerHooks?: typeof nodeModule.registerHooks }
+  if (typeof hooks.registerHooks !== 'function') {
+    debug('node:module registerHooks is unavailable; dependency recording disabled')
+    return undefined
+  }
+
+  const edges: ImportEdges = new Map()
+  hooks.registerHooks({
+    resolve(specifier, context, nextResolve) {
+      const result = nextResolve(specifier, context)
+      const parent = context.parentURL?.split('?')[0]
+      const child = result?.url?.split('?')[0]
+      if (parent?.startsWith('file:') && child?.startsWith('file:')) {
+        let set = edges.get(parent)
+        if (!set) edges.set(parent, (set = new Set()))
+        set.add(child)
+      }
+      return result
+    },
+  })
+  return edges
+}
+
+/**
+ * Record import edges from now on, for applications that load modules before
+ * Japa is configured. A framework that boots first (AdonisJS loads providers,
+ * preloads and config before `configure()`) resolves those modules before the
+ * recorder exists, so their own imports are never seen and the map can never be
+ * marked complete. Call this at the top of the test entrypoint, before booting.
+ */
+export function recordImportsFromStart(): boolean {
+  processEdges ??= registerResolveHook()
+  return processEdges !== undefined
+}
+
 /** Per-run writers, so two runs in one process cannot clobber each other. */
 const writers = new WeakMap<object, () => Promise<void>>()
 
@@ -143,19 +186,13 @@ export function filesAffectedBy(map: DependencyMap, changed: string[]): string[]
 /** Record each test file's transitive imports for `--changed`. */
 export function recordDependencies(options: { file?: string; dir?: string } = {}): PluginFn {
   return async ({ config, emitter, cliArgs }) => {
-    // Node 22.15+/23.5+ ship registerHooks. On older supported versions the
-    // dependency map is simply unavailable; --changed then runs everything.
-    const hooks = nodeModule as { registerHooks?: typeof nodeModule.registerHooks }
-    if (typeof hooks.registerHooks !== 'function') {
-      debug('node:module registerHooks is unavailable; dependency recording disabled')
-      return
-    }
+    const edges = processEdges ?? registerResolveHook()
+    if (!edges) return
 
     const cwd = await realpath(config.cwd)
     const target = options.file ? resolve(cwd, options.file) : dependencyFile(cwd, options.dir)
     const map = await readDependencyMap(target)
     const testFiles = new Set<string>()
-    const edges = new Map<string, Set<string>>()
     const filters = config.filters
     const completeRun =
       Boolean(cliArgs?.prepareCaches) ||
@@ -171,24 +208,8 @@ export function recordDependencies(options: { file?: string; dir?: string } = {}
     let importFailed = false
     let graphComplete = true
 
-    const addEdge = (parent: string, child: string) => {
-      let set = edges.get(parent)
-      if (!set) edges.set(parent, (set = new Set()))
-      set.add(child)
-    }
-
-    // Record importer -> imported edges, then walk from each test file. Load
+    // Edges are importer -> imported, walked from each test file below. Load
     // events alone would miss shared modules, which ESM loads only once.
-    hooks.registerHooks({
-      resolve(specifier, context, nextResolve) {
-        const result = nextResolve(specifier, context)
-        const parent = context.parentURL?.split('?')[0]
-        const child = result?.url?.split('?')[0]
-        if (parent?.startsWith('file:') && child?.startsWith('file:')) addEdge(parent, child)
-        return result
-      },
-    })
-
     const importer = config.importer
     config.importer = async (fileURL) => {
       testFiles.add(relative(cwd, fileURLToPath(fileURL)).split('\\').join('/'))
