@@ -7,6 +7,7 @@
  * file that was distributed with this source code.
  */
 
+import { isRunningInAIAgent } from '@poppinss/utils'
 import { assert } from 'chai'
 import { test } from 'node:test'
 import { Planner } from '../src/planner.js'
@@ -484,10 +485,10 @@ test.describe('Planner | reporters', () => {
         [
           {
             handler: reporters[0].handler,
-            name: 'spec',
+            name: isRunningInAIAgent() ? 'dot' : 'spec',
           },
         ].concat(
-          process.env.GITHUB_ACTIONS === 'true'
+          !isRunningInAIAgent() && process.env.GITHUB_ACTIONS === 'true'
             ? [
                 {
                   handler: reporters[1].handler,
