@@ -968,8 +968,8 @@ test.describe('Automatic duration history and worker coordination', () => {
       return JSON.parse(await readFile(`${cwd}/observed-serial.json`, 'utf8'))
     }
 
-    // Build the index from an unfiltered run, then filter by title.
-    await run([])
+    // Build the index from a prepare run, then filter by title.
+    await run(['--prepare-caches'])
     const filtered = await run(['--tests=case 3'])
     assert.deepEqual(filtered.executed, [3])
     assert.deepEqual(filtered.imported, ['file3.spec.ts'])
@@ -1072,8 +1072,8 @@ test.describe('Automatic duration history and worker coordination', () => {
       return JSON.parse(await readFile(`${cwd}/observed-serial.json`, 'utf8'))
     }
 
-    // Any full run records dependencies for the next one.
-    await run([])
+    // Agent/full runs record dependencies for the next one.
+    await run(['--agent'])
     const { dependencyFile } = await import('../src/cache_paths.js')
     const depsRaw = await readFile(dependencyFile(cwd), 'utf8').catch(() => 'MISSING')
     const deps = JSON.parse(depsRaw)
@@ -1711,5 +1711,21 @@ test.describe('Agent loop safety', () => {
     const { autoWorkerCount } = await import('../src/parallel.js')
     assert.equal(autoWorkerCount(['--files=user']), 1)
     assert.equal(autoWorkerCount(['--failed']), 1)
+  })
+
+  test('reject an invalid japa-agent timeout', async () => {
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    const { fileURLToPath } = await import('node:url')
+    const wrapper = fileURLToPath(new URL('../bin/agent.ts', import.meta.url))
+    const result = await promisify(execFile)(
+      process.execPath,
+      ['--import=@poppinss/ts-exec', wrapper, '--timeout=0', '--', process.execPath, '-e', '0'],
+      { cwd: process.cwd() }
+    ).then(
+      () => ({ code: 0 }),
+      (error: { code?: number }) => ({ code: error.code })
+    )
+    assert.equal(result.code, 2)
   })
 })

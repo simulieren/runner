@@ -54,6 +54,15 @@ function withoutSelectionFlags(args: string[]) {
   return kept
 }
 
+function agentFile(args: string[]) {
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]
+    if (arg.startsWith('--agent-file=')) return arg.slice('--agent-file='.length)
+    if (arg === '--agent-file') return args[index + 1]
+  }
+  return undefined
+}
+
 function parse(argv: string[]): { options: Options; command: string[] } {
   const separator = argv.indexOf('--')
   const head = separator < 0 ? argv : argv.slice(0, separator)
@@ -74,6 +83,12 @@ function parse(argv: string[]): { options: Options; command: string[] } {
     else if (arg.startsWith('--timeout=')) options.timeout = Number(arg.slice('--timeout='.length))
     else if (arg === '--timeout') options.timeout = Number(head[++index])
     else throw new Error(`Unknown japa-agent option: ${arg}`)
+  }
+  if (
+    options.timeout !== undefined &&
+    (!Number.isFinite(options.timeout) || options.timeout <= 0)
+  ) {
+    throw new Error('--timeout must be a positive number of milliseconds')
   }
   return { options, command }
 }
@@ -213,21 +228,24 @@ async function main() {
     }
   }
 
-  const out = options.out
-    ? resolve(cwd, options.out)
-    : join(cwd, 'node_modules/.cache/japa/agent.jsonl')
-  const previous = await readReport(out)
+  const explicitReport = agentFile(args)
+  const reportPath = explicitReport
+    ? resolve(cwd, explicitReport)
+    : options.out
+      ? resolve(cwd, options.out)
+      : join(cwd, 'node_modules/.cache/japa/agent.jsonl')
+  const previous = await readReport(reportPath)
   const runArgs = [...args, ...cacheArgs, '--agent']
-  if (!args.some((arg) => arg.startsWith('--agent-file'))) runArgs.push(`--agent-file=${out}`)
+  if (!explicitReport) runArgs.push(`--agent-file=${reportPath}`)
   if (!options.full && !selectionGiven) runArgs.push('--changed=auto')
 
   const runStarted = performance.now()
   const exit = await run(executable, runArgs, cwd, options.timeout)
   const runMs = Math.round(performance.now() - runStarted)
 
-  const current = await readReport(out)
+  const current = await readReport(reportPath)
   const delta = diffReports(previous, current ?? { failures: [] })
-  const deltaPath = `${out}.delta.json`
+  const deltaPath = `${reportPath}.delta.json`
   await writeFile(deltaPath, `${JSON.stringify(delta, null, 2)}\n`).catch(() => {})
 
   if (options.metrics) {
@@ -248,7 +266,7 @@ async function main() {
 
   process.stderr.write(
     `japa-agent: exit=${exit} new=${delta.counts.new} fixed=${delta.counts.fixed} ` +
-      `run=${runMs}ms report=${out} delta=${deltaPath}\n`
+      `run=${runMs}ms report=${reportPath} delta=${deltaPath}\n`
   )
   return exit
 }

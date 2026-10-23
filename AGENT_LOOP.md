@@ -35,6 +35,10 @@ npx japa-agent -- node --import=@poppinss/ts-exec bin/test.ts
 `japa-agent` accepts `--cwd`, `--out`, `--cache-dir`, `--full`, `--no-prepare`,
 `--timeout`, `--report` and `--no-metrics`.
 
+`--update-baseline` does not delete entries that stop failing. They stay in the
+file with `consecutive: 0`, so `--allow-known-failures` still recognises them if
+they fail again.
+
 ## Exit codes
 
 | Code | Meaning |

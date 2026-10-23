@@ -254,8 +254,21 @@ export function durationHistory(options: { file?: string } = {}): PluginFn {
             durations: complete ? durations : {},
           })
         } catch (error) {
-          // A result that cannot be written is a lost timing sample, not a test failure.
+          // A result that cannot be written is a lost timing sample, not a test
+          // failure. Leave a minimal report so the coordinator keeps the test
+          // exit code and skips timings/baseline promotion.
           debug('unable to write worker timings: %O', error)
+          await writeHistory(output!, {
+            version: 1,
+            cwd,
+            runId,
+            worker: Number(process.env.JAPA_WORKER_ID),
+            total: Number(process.env.JAPA_WORKER_COUNT),
+            complete: false,
+            fullRun: false,
+            failedTests: runner.getSummary().failedTestsTitles,
+            durations: {},
+          }).catch((fallbackError) => debug('unable to write fallback timings: %O', fallbackError))
         }
       } else if (complete) {
         try {

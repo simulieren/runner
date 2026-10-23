@@ -233,6 +233,14 @@ export async function run() {
      */
     await retryPlugin({ config: runnerConfig!, runner, emitter, cliArgs })
     const preparing = Boolean(cliArgs.prepareCaches)
+    const filters = runnerConfig!.filters
+    // Cache recording is opt-in. A plain run should not install module hooks or
+    // write an index that it never asked to use.
+    const recordsCaches =
+      preparing ||
+      Boolean(cliArgs.changed) ||
+      Boolean(cliArgs.reporterAgent || cliArgs.agentFile) ||
+      Boolean(filters.tests?.length || filters.groups?.length || filters.tags?.length)
 
     // The coordinator's environment enables history without an app-config edit.
     if (
@@ -249,7 +257,7 @@ export async function run() {
      * imported, and record what each file contains for the next filtered run.
      * Best-effort: an absent or stale index keeps every file.
      */
-    if (!process.env.JAPA_SPEED_RUN_ID) {
+    if (!process.env.JAPA_SPEED_RUN_ID && recordsCaches) {
       const { changedSelection, recordDependencies } = await import('./src/dependencies.js')
       const dependencyOptions = { dir: cliArgs.cacheDir }
       // Preparing caches must import every file, even if selection flags were
@@ -270,7 +278,7 @@ export async function run() {
       })
     }
 
-    if (!process.env.JAPA_NO_SELECTION_INDEX && !preparing) {
+    if (!process.env.JAPA_NO_SELECTION_INDEX && recordsCaches && !preparing) {
       const { selectionIndex } = await import('./src/selection_index.js')
       // `--changed` already set the selection; do not let the title index widen it.
       if (!cliArgs.changed) {
@@ -410,7 +418,7 @@ export async function run() {
      * Registration is complete. Record the selection index from what was
      * imported, so even a filtered run keeps its entries complete.
      */
-    if (!process.env.JAPA_NO_SELECTION_INDEX) {
+    if (!process.env.JAPA_NO_SELECTION_INDEX && recordsCaches) {
       const { writeSelectionIndex } = await import('./src/selection_index.js')
       await writeSelectionIndex(runner, runnerConfig!.cwd, { dir: cliArgs.cacheDir }).catch(
         (error) => console.error(`Unable to update the selection index: ${String(error)}`)
@@ -507,7 +515,6 @@ export async function run() {
        * it would erase every failure outside the slice. Managed workers also
        * never write; the coordinator merges all shards once.
        */
-      const filters = runnerConfig!.filters
       const isFullRun =
         !process.env.JAPA_SPEED_RUN_ID &&
         !cliArgs.listPinned &&
@@ -551,7 +558,7 @@ export async function run() {
         if (fixed.length && !cliArgs.reporterAgent && !cliArgs.agentFile) {
           warn(
             `${fixed.length} baseline ${fixed.length === 1 ? 'entry' : 'entries'} did not fail; ` +
-              'remove them with --update-baseline when convenient.'
+              '--update-baseline on a full run will mark them as passing; it does not remove them.'
           )
         }
         if (cliArgs.reporterAgent || cliArgs.agentFile) {
