@@ -12,7 +12,13 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { availableParallelism } from 'node:os'
-import { filesAffectedBy, gitChangedPaths, readDependencyMap } from './dependencies.js'
+import {
+  explainChangedFallback,
+  filesAffectedBy,
+  gitChangedPaths,
+  readDependencyMap,
+} from './dependencies.js'
+import { warn } from './helpers.js'
 import { dependencyFile } from './cache_paths.js'
 import debug from './debug.js'
 import { getFailedTests, cacheFailedTests } from './plugins/retry_cache.js'
@@ -70,7 +76,13 @@ async function changedFiles(cwd: string, args: string[]) {
           .map((path) => path.trim())
           .filter(Boolean)
   const map = await readDependencyMap(dependencyFile(cwd, optionValue(args, '--cache-dir')))
-  return filesAffectedBy(map, paths)
+  const affected = filesAffectedBy(map, paths)
+  if (!affected) {
+    warn(
+      `[japa-parallel] --changed is running the full suite: ${explainChangedFallback(map, paths) ?? 'the dependency map cannot answer.'}`
+    )
+  }
+  return affected
 }
 
 function replaceAgentFile(args: string[], file: string) {
@@ -231,6 +243,12 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
       : (options.workers ?? Math.min(4, availableParallelism()))
   if (!Number.isInteger(count) || count < 1 || count > 256)
     throw new Error('workers must be an integer between 1 and 256')
+  if (count > availableParallelism()) {
+    warn(
+      `[japa-parallel] ${count} workers on ${availableParallelism()} CPUs: each worker boots the ` +
+        'app, so extra workers usually make the run slower, not faster.'
+    )
+  }
   if (!options.command) throw new Error('A test command is required')
   if (options.args?.some((arg) => arg === '--shard' || arg.startsWith('--shard='))) {
     throw new Error('The coordinator assigns --shard automatically; remove it from the command')
@@ -391,7 +409,9 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
             ? `was killed by ${worker.signal}`
             : `exited with code ${worker.exitCode}`
           worker.error = missing
-            ? `${ended} before writing its report; its own output above says why`
+            ? `${ended} before writing its report. Its output above says why. Usual causes: ` +
+              'a teardown hook that calls process.exit(), or an app shutdown that waits on a ' +
+              'connection a test never released. Japa writes the report after teardown.'
             : `wrote an unusable report (${String(error)}); is the command running this runner fork?`
           worker.exitCode = worker.exitCode || 1
           exitCode = 1

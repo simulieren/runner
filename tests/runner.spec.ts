@@ -1348,6 +1348,57 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.isFalse(hasRuntimeRelativeImport("import { a } from '#app/a'"))
   })
 
+  test('explain why --changed cannot narrow, as the fix', async () => {
+    const { explainChangedFallback } = await import('../src/dependencies.js')
+    const empty = { version: 1 as const, files: {} }
+    const partial = { version: 1 as const, complete: false, files: { 'a.spec.ts': ['a.ts'] } }
+    const full = { version: 1 as const, complete: true, files: { 'a.spec.ts': ['a.ts'] } }
+
+    assert.include(explainChangedFallback(empty, ['a.ts']), '--prepare-caches')
+    assert.include(explainChangedFallback(partial, ['a.ts']), 'recordImportsFromStart()')
+    assert.include(explainChangedFallback(full, []), 'no changed paths')
+    assert.include(explainChangedFallback(full, ['config/app.ts']), 'config/app.ts')
+    assert.isUndefined(explainChangedFallback(full, ['a.ts']))
+  })
+
+  test('warn when preparing caches cannot see imports made before configure', async (context) => {
+    const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+    const { fileURLToPath, pathToFileURL } = await import('node:url')
+    const cwd = await mkdtemp(fileURLToPath(new URL('../.deps-early-', import.meta.url)))
+    context.after(() => rm(cwd, { recursive: true, force: true }))
+    await writeFile(`${cwd}/leaf.mjs`, 'export const leaf = 1\n')
+    await writeFile(`${cwd}/booted.mjs`, "export { leaf } from './leaf.mjs'\n")
+    await writeFile(
+      `${cwd}/app.spec.mjs`,
+      "import { leaf } from './booted.mjs'\nexport default leaf\n"
+    )
+    await import(pathToFileURL(`${cwd}/booted.mjs`).href)
+
+    const { recordDependencies, flushDependencies } = await import('../src/dependencies.js')
+    const warnings: string[] = []
+    context.mock.method(console, 'error', (message: string) => warnings.push(String(message)))
+    const listeners = new Map<string, () => void>()
+    const emitter = { once: (name: string, fn: () => void) => listeners.set(name, fn) }
+    const config = {
+      cwd,
+      importer: async (url: URL) => {
+        await import(url.href)
+      },
+    }
+    await recordDependencies()({ config, emitter, cliArgs: { prepareCaches: true } } as never)
+    await config.importer(pathToFileURL(`${cwd}/app.spec.mjs`))
+    await flushDependencies(emitter)
+
+    assert.isTrue(
+      warnings.some((line) => line.includes('recordImportsFromStart()')),
+      warnings.join('\n')
+    )
+    assert.isTrue(
+      warnings.some((line) => line.includes('booted.mjs')),
+      warnings.join('\n')
+    )
+  })
+
   test('complete the map for modules an app loads before configure', async (context) => {
     const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises')
     const { fileURLToPath, pathToFileURL } = await import('node:url')

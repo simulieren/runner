@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url'
 import debug from './debug.js'
 import { withCacheLock } from './cache_lock.js'
 import { setSelectionPlan } from './planning_state.js'
+import { warn } from './helpers.js'
 import type { PluginFn } from './types.js'
 
 /**
@@ -55,6 +56,47 @@ type ImportEdges = Map<string, Set<string>>
 
 /** Importer -> imported URLs seen by the resolve hook, once it is registered. */
 let processEdges: ImportEdges | undefined
+/** Stays true when this Node has no `module.registerHooks`. */
+let hookUnavailable = true
+
+const RECORD_EARLY_HINT =
+  'If your framework imports app code before configure() (AdonisJS boots providers and ' +
+  'preloads first), call recordImportsFromStart() at the top of the test entrypoint, then ' +
+  'rerun with --prepare-caches.'
+
+/** Why `--changed` ran the full suite, per run config; read into the agent summary. */
+const fallbackReasons = new WeakMap<object, string>()
+
+export function changedFallbackReason(config: object) {
+  return fallbackReasons.get(config)
+}
+
+/**
+ * Why `filesAffectedBy` could not answer, worded as what to do about it.
+ * `undefined` when it can.
+ */
+export function explainChangedFallback(map: DependencyMap, changed: string[]) {
+  if (!Object.keys(map.files).length) {
+    return 'no dependency map yet. Run once with --prepare-caches (or a full run).'
+  }
+  if (map.complete !== true) {
+    return `the dependency map is incomplete. ${RECORD_EARLY_HINT}`
+  }
+  if (!changed.length) return 'no changed paths were found.'
+  const known = new Set<string>()
+  for (const [testFile, dependencies] of Object.entries(map.files)) {
+    known.add(testFile)
+    for (const dependency of dependencies) known.add(dependency)
+  }
+  const unknown = changed.filter((path) => !known.has(path.split('\\').join('/')))
+  if (!unknown.length) return undefined
+  const sample = unknown.slice(0, 3).join(', ')
+  return (
+    `${unknown.length} changed path(s) no test file imports (${sample}${unknown.length > 3 ? ', ...' : ''}). ` +
+    'Configs, new modules and files loaded lazily (routes, controllers) are not in the map; ' +
+    'a new test file needs --prepare-caches.'
+  )
+}
 
 function registerResolveHook(): ImportEdges | undefined {
   // Node 22.15+/23.5+ ship registerHooks. On older supported versions the
@@ -64,6 +106,7 @@ function registerResolveHook(): ImportEdges | undefined {
     debug('node:module registerHooks is unavailable; dependency recording disabled')
     return undefined
   }
+  hookUnavailable = false
 
   const edges: ImportEdges = new Map()
   hooks.registerHooks({
@@ -258,23 +301,35 @@ export function recordDependencies(options: { file?: string; dir?: string } = {}
         map.files[testFile] = [...project].sort()
       }
 
+      const unrecorded = new Set<string>()
       if (completeRun && !importFailed) {
         for (const testFile of testFiles) {
           const root = pathToFileURL(join(cwd, testFile)).href
           if (await hasRelativeImports(join(cwd, testFile))) {
             const recorded = edges.get(root)?.size ?? 0
-            if (!recorded) graphComplete = false
+            if (!recorded) unrecorded.add(testFile)
           }
           for (const dependency of map.files[testFile] ?? []) {
-            if (dependency === testFile) continue
+            if (dependency === testFile || unrecorded.has(dependency)) continue
             const url = pathToFileURL(join(cwd, dependency)).href
             if (
               (edges.get(url)?.size ?? 0) === 0 &&
               (await hasRelativeImports(join(cwd, dependency)))
             ) {
-              graphComplete = false
+              unrecorded.add(dependency)
             }
           }
+        }
+      }
+      if (unrecorded.size) {
+        graphComplete = false
+        if (cliArgs?.prepareCaches) {
+          const sample = [...unrecorded].slice(0, 3).join(', ')
+          warn(
+            `The dependency map is incomplete: ${unrecorded.size} file(s) imported other files ` +
+              `before Japa could record them (${sample}). --changed will run the full suite. ` +
+              RECORD_EARLY_HINT
+          )
         }
       }
 
@@ -340,7 +395,13 @@ export function changedSelection(options: { file?: string; dir?: string } = {}):
             .filter(Boolean)
     const affected = filesAffectedBy(map, changed)
     if (!affected) {
-      debug('unable to narrow --changed; running the full suite')
+      const reason = explainChangedFallback(map, changed) ?? 'the dependency map cannot answer.'
+      const why =
+        hookUnavailable && !processEdges
+          ? 'this Node has no module.registerHooks (22.15+ or 23.5+ needed).'
+          : reason
+      fallbackReasons.set(config, why)
+      warn(`--changed is running the full suite: ${why}`)
       return
     }
     // The map names the complete set of known test files, so restricting to the

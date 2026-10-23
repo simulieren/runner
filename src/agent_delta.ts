@@ -21,6 +21,7 @@ export type AgentSelection = {
   skipped: number
   signature?: string
   fallback?: boolean
+  fallbackReason?: string
 }
 
 export type AgentSummary = {

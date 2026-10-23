@@ -22,6 +22,8 @@ export type AgentContext = {
     signature?: string
     /** A filter was requested but could not narrow the import list. */
     fallback?: boolean
+    /** Why `--changed` ran everything, worded as the fix. */
+    fallbackReason?: string
   }
   phases?: {
     bootMs: number
