@@ -544,13 +544,14 @@ export async function run() {
      */
     let onlyKnownFailures = false
     if ((cliArgs.allowKnownFailures || cliArgs.updateBaseline) && runFailures) {
-      const { readBaseline, diffFailures, updateBaseline, baselineFile } =
+      const { readBaseline, diffFailures, updateBaseline, baselineFile, plannedSuites } =
         await import('./src/failure_baseline.js')
       const file = baselineFile(runnerConfig!.cwd)
       /**
-       * A baseline is the whole suite. Never write it from a partial selection:
-       * it would erase every failure outside the slice. Managed workers also
-       * never write; the coordinator merges all shards once.
+       * Never write a baseline from a partial selection: it would erase every
+       * failure outside the slice. Naming suites is not partial; only those
+       * suites' entries change. Managed workers never write; the coordinator
+       * merges all shards once.
        */
       const isFullRun =
         !process.env.JAPA_SPEED_RUN_ID &&
@@ -560,14 +561,14 @@ export async function run() {
         !cliArgs.bail &&
         !runFailures.hasPinned() &&
         !filters.shard &&
-        !filters.suites?.length &&
         !filters.tests?.length &&
         !filters.groups?.length &&
         !filters.tags?.length &&
         !filters.files?.length
+      const ranSuites = plannedSuites(runnerConfig!)
       const canUpdateBaseline = isFullRun && !nonTestErrors
       if (cliArgs.updateBaseline && canUpdateBaseline) {
-        const update = await updateBaseline(file, runFailures.failures)
+        const update = await updateBaseline(file, runFailures.failures, ranSuites)
         if (update.added.length && update.removed.length) {
           warn(
             `Baseline changed in both directions (${update.added.length} added, ` +
@@ -580,7 +581,8 @@ export async function run() {
           nonTestErrors
             ? 'Baseline not updated: the run had setup or teardown errors.'
             : 'Baseline not updated: --update-baseline requires a full run ' +
-                '(no test, file, group, tag, changed or failed filter, no bail and no shard).'
+                '(no test, file, group, tag, changed or failed filter, no bail and no shard; ' +
+                'naming suites is fine).'
         )
       }
       if (cliArgs.allowKnownFailures) {
@@ -591,6 +593,7 @@ export async function run() {
           fixed,
         } = diffFailures(baseline, runFailures.failures, {
           fullRun: isFullRun && !nonTestErrors,
+          suites: ranSuites,
         })
         onlyKnownFailures = fresh.length === 0 && !nonTestErrors
         if (fixed.length && !cliArgs.reporterAgent && !cliArgs.agentFile) {

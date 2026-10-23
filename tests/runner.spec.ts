@@ -2155,6 +2155,34 @@ test.describe('Agent loop safety', () => {
     assert.equal(autoWorkerCount(['--failed']), 1)
   })
 
+  test('update and compare a baseline only within the suites that ran', async () => {
+    const { diffFailures, mergeBaseline, plannedSuites } =
+      await import('../src/failure_baseline.js')
+    const unit = { suite: 'unit', file: 'a.spec.ts', title: 'a', consecutive: 2, updatedAt: 'x' }
+    const browser = {
+      suite: 'browser',
+      file: 'b.spec.ts',
+      title: 'b',
+      consecutive: 3,
+      updatedAt: 'x',
+    }
+    const previous = { version: 2 as const, failures: [unit, browser] }
+
+    const merged = mergeBaseline(previous, [], 'now', ['unit', 'functional'])
+    assert.deepEqual(merged.removed, [unit])
+    assert.deepInclude(merged.baseline.failures, { ...unit, consecutive: 0 })
+    assert.deepInclude(merged.baseline.failures, browser)
+    assert.deepEqual(diffFailures(previous, [], { suites: ['unit'] }).fixed, [unit])
+
+    const suites = [{ name: 'unit' }, { name: 'functional' }, { name: 'browser' }]
+    assert.deepEqual(plannedSuites({ suites, filters: { suites: ['unit', 'functional'] } }), [
+      'unit',
+      'functional',
+    ])
+    assert.deepEqual(plannedSuites({ suites }), ['unit', 'functional', 'browser'])
+    assert.deepEqual(plannedSuites({}), ['default'])
+  })
+
   test('merge repeated retry failures once', async () => {
     const { diffFailures, mergeBaseline } = await import('../src/failure_baseline.js')
     const entry = { suite: 'default', file: 'a.spec.ts', title: 'a' }

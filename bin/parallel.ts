@@ -69,7 +69,9 @@ async function main() {
       if (worker.error) console.error(`[japa-parallel] worker ${worker.worker}: ${worker.error}`)
     }
     if (updateBaseline && !result.baselineUpdated) {
-      console.error('[japa-parallel] baseline not updated: the run was partial or incomplete')
+      console.error(
+        `[japa-parallel] baseline not updated: ${result.baselineSkipped ?? 'the run was partial or incomplete'}`
+      )
     } else if (updateBaseline && result.baselineChanges?.added && result.baselineChanges.removed) {
       console.error(
         `[japa-parallel] baseline changed in both directions ` +

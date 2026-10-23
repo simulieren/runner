@@ -33,17 +33,53 @@ npx japa-parallel --workers=auto -- node --import=@poppinss/ts-exec bin/test.ts
 | `--allow-known-failures` | Exit 0 when the only failures match `japa.baseline.json`. |
 | `--update-baseline` | Record this run's failures. Only a full run writes. |
 | `--failed-new` | With `--failed`, skip titles already in the baseline. |
-| `--workers=auto` | Coordinator flag (`japa-parallel`): use one worker for narrow selections. |
+| `--workers=auto` | Coordinator flag (`japa-parallel`): size the pool from the recorded durations of the planned files, one worker per ~10s of test time (at most 8). Without recorded durations, one worker for narrow selections. |
 | `JAPA_WORKERS=4` | Same as `--workers` for `japa-parallel`; the flag wins when both are set. |
 
 `japa-agent` accepts `--cwd`, `--out`, `--cache-dir`, `--full`, `--no-prepare`,
-`--timeout`, `--report` and `--no-metrics`.
+`--workers`, `--timeout`, `--report` and `--no-metrics`. With `--workers=auto` (the
+default, or `JAPA_WORKERS`) it runs the selection in one process when its recorded test
+time would not pay for another application boot, and on a `japa-parallel` pool otherwise.
 It writes the report with `--agent-file`, so the command's configured reporters still
 run; add `--agent` to the command to also print the JSON on stdout.
 
 `--update-baseline` does not delete entries that stop failing. They stay in the
 file with `consecutive: 0`, so `--allow-known-failures` still recognises them if
 they fail again.
+
+## How `--changed` selects
+
+The dependency map records, for each test file, the project files its own imports reach.
+The walk stops at packages: a framework package that loads the application at boot would
+otherwise make every test depend on every booted file. Project files a package loads
+before the first test file (config, providers, preloads, route files) form the boot set.
+
+| Changed path | Runs |
+| --- | --- |
+| Reached by a test's imports or a resolver | Those test files. |
+| In the boot set and reached by no test | Everything. |
+| Reached by nothing, heuristic on, and a name or rule matches | The guessed files; the summary says `"heuristic": true`. |
+| Anything else | Everything, with the reason. |
+
+Two config options cover files no import reaches:
+
+```ts
+// tests/bootstrap.ts (or wherever the runner config lives)
+export const selection: Config['selection'] = {
+  // A test depends on files it never imports, such as the controller behind a route.
+  resolvers: [async (testFile) => controllersRequestedBy(testFile)],
+  // Off by default. Guess tests by file name (lease.ts -> lease.spec.ts) and by these prefixes.
+  heuristic: [{ from: 'app/modules/*/', to: 'tests/modules/*/' }],
+}
+```
+
+Resolver results are imported while the map is written, so their own imports are recorded
+even when the run never loads them. A heuristic selection can miss a dependant; run the
+full suite before relying on one.
+
+In a large AdonisJS app (2,400 source files, 1,110 test files) a typical changed file
+selected all 1,079 test files with the version 1 map. It now selects 9, and 1,262 files
+select 20 or fewer.
 
 ## Exit codes
 
@@ -122,6 +158,11 @@ Things that broke a real app under `japa-parallel` and how they show up:
   the same way, since Japa writes the worker report after teardown. Exit only after
   `run()` resolves.
 - Vite's WebSocket server. Each worker opens one; set `server.ws: false` under test.
+- Two pools at once. Worker N of each would share database N, so a second `japa-parallel`
+  in the same project waits for the first (`JAPA_PARALLEL_LOCK=0` turns this off).
+- A fixed `PORT` with a dev server running. Outside Ace nothing picks a free port, so the
+  HTTP suite fails in setup while the other suites report normally. Pick a free port in
+  `bin/test.ts` for serial runs too.
 - Shared process state (`mail.fake()`, sinon stubs, fake clocks). Sharding changes which
   files share a process, so a leak that serial order hid becomes a failure.
 
@@ -133,7 +174,10 @@ Japa warns on stderr, so agent JSON on stdout stays parseable.
 | --- | --- |
 | `--changed is running the full suite: no dependency map yet` | Run once with `--prepare-caches`. |
 | `... the dependency map is incomplete` | Call `recordImportsFromStart()` at the top of the entrypoint, then `--prepare-caches`. |
-| `... N changed path(s) no test file imports` | Expected for configs and lazily loaded files (routes, controllers). A new spec needs `--prepare-caches`. |
+| `... N changed path(s) are loaded at boot` | Expected for config, providers and route files. |
+| `... N changed path(s) no test file imports` | Add a `selection.resolvers` entry for lazily loaded files (controllers, jobs) or turn on `selection.heuristic`. A new spec needs `--prepare-caches`. |
+| `--changed guessed tests by name` | The heuristic picked the tests; run the full suite before relying on it. |
+| `[japa-parallel] waiting for the run in process N to finish` | Another pool holds this project's workers. |
 | `... this Node has no module.registerHooks` | Use Node 22.15+ or 23.5+. |
 | `The dependency map is incomplete: N file(s) imported other files before Japa could record them` | Printed by `--prepare-caches`; same fix as above. |
 | `[japa-parallel] N workers on M CPUs` | Use fewer workers or `--workers=auto`. |
@@ -146,7 +190,9 @@ The agent summary carries the same reason as `selection.fallbackReason`.
 - A changed test file is always imported; changed source files select their dependants.
 - A file the index has never seen is always imported.
 - A file with runtime-built titles (datasets) is never skipped by a title filter.
-- `--changed` falls back to the full suite for any unknown path.
+- `--changed` falls back to the full suite for any unknown path, unless the heuristic is
+  on and names tests for it, and the summary then says so.
+- A version 1 dependency map is discarded, not trusted.
 - A partial selection never rewrites a baseline.
 - Cache failures never fail a test run.
 

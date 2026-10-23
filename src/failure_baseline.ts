@@ -144,8 +144,12 @@ export function collectFailures(
 export function mergeBaseline(
   previous: Baseline,
   observed: BaselineEntry[],
-  now = new Date().toISOString()
+  now = new Date().toISOString(),
+  suites?: readonly string[]
 ): { baseline: Baseline; added: BaselineEntry[]; removed: BaselineEntry[] } {
+  // A run of some suites says nothing about the others; their entries stay as they are.
+  const inScope = (entry: BaselineEntry) => !suites || suites.includes(entry.suite)
+  const untouched = previous.failures.filter((entry) => !inScope(entry))
   const existing = new Map(previous.failures.map((entry) => [keyOf(entry), entry]))
   const seen = new Set<string>()
   const failures: BaselineEntry[] = []
@@ -169,19 +173,23 @@ export function mergeBaseline(
     failures.push(merged)
   }
 
-  const removed = previous.failures.filter((entry) => !seen.has(keyOf(entry)))
+  const removed = previous.failures.filter((entry) => inScope(entry) && !seen.has(keyOf(entry)))
   for (const entry of removed) {
     failures.push({ ...entry, consecutive: 0 })
   }
 
-  return { baseline: { version: 2, failures }, added, removed }
+  return { baseline: { version: 2, failures: [...failures, ...untouched] }, added, removed }
 }
 
 /** Read, merge and write a baseline under an exclusive lock. */
-export async function updateBaseline(file: string, observed: BaselineEntry[]) {
+export async function updateBaseline(
+  file: string,
+  observed: BaselineEntry[],
+  suites?: readonly string[]
+) {
   return withCacheLock(file, async () => {
     const previous = await readBaseline(file)
-    const result = mergeBaseline(previous, observed)
+    const result = mergeBaseline(previous, observed, undefined, suites)
     await writeBaseline(file, result.baseline)
     return result
   })
@@ -197,7 +205,7 @@ export async function updateBaseline(file: string, observed: BaselineEntry[]) {
 export function diffFailures(
   baseline: Baseline,
   failures: BaselineEntry[],
-  options: { fullRun?: boolean } = {}
+  options: { fullRun?: boolean; suites?: readonly string[] } = {}
 ): { new: BaselineEntry[]; known: BaselineEntry[]; fixed: BaselineEntry[] } {
   const expected = new Set(baseline.failures.map(keyOf))
   const observed = new Map<string, BaselineEntry>()
@@ -210,6 +218,21 @@ export function diffFailures(
   }
   // A slice cannot tell a passing test from a test that was never selected.
   const fixed =
-    options.fullRun === false ? [] : baseline.failures.filter((entry) => !seen.has(keyOf(entry)))
+    options.fullRun === false
+      ? []
+      : baseline.failures.filter(
+          (entry) =>
+            !seen.has(keyOf(entry)) && (!options.suites || options.suites.includes(entry.suite))
+        )
   return { new: fresh, known, fixed }
+}
+
+/** The suites a run covers: the configured ones, narrowed by a suite filter. */
+export function plannedSuites(config: {
+  suites?: { name: string }[]
+  filters?: { suites?: string[] }
+}) {
+  const names = config.suites ? config.suites.map((suite) => suite.name) : ['default']
+  const only = config.filters?.suites
+  return only?.length ? names.filter((name) => only.includes(name)) : names
 }

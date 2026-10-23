@@ -12,7 +12,7 @@ import { mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promis
 import { dirname, join, relative, resolve } from 'node:path'
 import debug from './debug.js'
 import type { PluginFn } from './types.js'
-import type { BaselineEntry } from './failure_baseline.js'
+import { plannedSuites, type BaselineEntry } from './failure_baseline.js'
 import { withCacheLock } from './cache_lock.js'
 
 const REGISTERED = new WeakSet<object>()
@@ -34,8 +34,10 @@ export type History = {
   durations: DurationMap
   runId?: string
   failedTests?: string[]
-  /** Managed worker ran the whole suite, not a selection. */
+  /** Managed worker ran whole suites, not a selection. */
   fullRun?: boolean
+  /** The suites a full-run worker covered. */
+  suites?: string[]
   /** Only written by managed workers when the coordinator collects a baseline. */
   failures?: BaselineEntry[]
 }
@@ -98,6 +100,12 @@ export function parseHistory(value: unknown, cwd: string): History {
     if (typeof value.fullRun !== 'boolean') throw new Error('Invalid full-run history')
     fullRun = value.fullRun
   }
+  let suites: string[] | undefined
+  if ('suites' in value) {
+    if (!Array.isArray(value.suites) || !value.suites.every((name) => typeof name === 'string'))
+      throw new Error('Invalid suite history')
+    suites = value.suites
+  }
   let failedTests: string[] | undefined
   if ('failedTests' in value) {
     if (
@@ -113,6 +121,7 @@ export function parseHistory(value: unknown, cwd: string): History {
     durations,
     ...(failedTests ? { failedTests } : {}),
     ...(fullRun !== undefined ? { fullRun } : {}),
+    ...(suites ? { suites } : {}),
     ...(failures ? { failures } : {}),
     ...('runId' in value && typeof value.runId === 'string' ? { runId: value.runId } : {}),
   }
@@ -252,8 +261,7 @@ export function durationHistory(options: { file?: string } = {}): PluginFn {
         !cliArgs.failed &&
         !cliArgs.changed &&
         !cliArgs.bail &&
-        !config.filters.files?.length &&
-        !config.filters.suites?.length
+        !config.filters.files?.length
       const complete = !partial && !hookFailed && !cliArgs.bail && !processError
       for (const key of failedFiles) delete durations[key]
       if (managed) {
@@ -266,6 +274,7 @@ export function durationHistory(options: { file?: string } = {}): PluginFn {
             total: Number(process.env.JAPA_WORKER_COUNT),
             complete,
             fullRun,
+            suites: plannedSuites(config),
             failedTests: runner.getSummary().failedTestsTitles,
             ...(collectFailures ? { failures } : {}),
             durations: complete ? durations : {},

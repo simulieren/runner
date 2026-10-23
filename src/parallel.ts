@@ -53,6 +53,8 @@ export type ParallelResult = {
   historyUpdated: boolean
   baselineUpdated: boolean
   baselineChanges?: { added: number; removed: number }
+  /** Why `updateBaseline` did not write, worded for the user. */
+  baselineSkipped?: string
   workers: { worker: number; exitCode: number; signal?: NodeJS.Signals; error?: string }[]
 }
 
@@ -446,11 +448,13 @@ async function runPool(options: ParallelOptions): Promise<ParallelResult> {
     let historyUpdated = false
     let baselineUpdated = false
     let baselineChanges: { added: number; removed: number } | undefined
+    let baselineSkipped: string | undefined
     const baselineFailures: BaselineEntry[] = []
     const estimates: DurationMap = Object.create(null)
     let complete = true
     let fullRun = true
     let validReports = true
+    const ranSuites = new Set<string>()
     const failures = new Set<string>()
     if (!aborted) {
       for (const worker of workers) {
@@ -476,6 +480,7 @@ async function runPool(options: ParallelOptions): Promise<ParallelResult> {
           if (result.failures) baselineFailures.push(...result.failures)
           complete &&= raw.complete
           fullRun &&= result.fullRun === true
+          for (const suite of result.suites ?? []) ranSuites.add(suite)
           for (const [key, duration] of Object.entries(result.durations)) {
             if (Object.hasOwn(estimates, key))
               throw new Error(`Workers reported the same file: ${key}`)
@@ -529,7 +534,11 @@ async function runPool(options: ParallelOptions): Promise<ParallelResult> {
       // replace a committed baseline with a slice of the suite.
       if (options.updateBaseline && validReports && finished && complete && fullRun && !aborted) {
         try {
-          const update = await updateBaseline(baselineFile(cwd), baselineFailures)
+          const update = await updateBaseline(
+            baselineFile(cwd),
+            baselineFailures,
+            ranSuites.size ? [...ranSuites] : undefined
+          )
           baselineChanges = {
             added: update.added.length,
             removed: update.removed.length,
@@ -537,15 +546,25 @@ async function runPool(options: ParallelOptions): Promise<ParallelResult> {
           baselineUpdated = true
         } catch (error) {
           debug('unable to write the failure baseline: %O', error)
+          baselineSkipped = `the baseline file could not be written (${String(error)})`
         }
+      } else if (options.updateBaseline) {
+        baselineSkipped =
+          !validReports || !finished
+            ? 'a worker did not finish or report'
+            : !fullRun
+              ? 'the run was filtered (tests, files, groups, tags, changed or failed)'
+              : 'a suite or group hook failed, or an error was thrown outside a test'
       }
     }
+    if (aborted && options.updateBaseline) baselineSkipped = 'the run was cancelled'
     if (escalation) await escalation
     return {
       exitCode: aborted ? 130 : exitCode,
       historyUpdated,
       baselineUpdated,
       ...(baselineChanges ? { baselineChanges } : {}),
+      ...(baselineSkipped ? { baselineSkipped } : {}),
       workers,
     }
   } finally {
