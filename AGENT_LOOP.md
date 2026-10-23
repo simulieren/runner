@@ -81,7 +81,7 @@ rest from them in the test bootstrap.
 
 ## Safety rules
 
-- A changed file is always imported.
+- A changed test file is always imported; changed source files select their dependants.
 - A file the index has never seen is always imported.
 - A file with runtime-built titles (datasets) is never skipped by a title filter.
 - `--changed` falls back to the full suite for any unknown path.
