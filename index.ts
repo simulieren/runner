@@ -447,7 +447,9 @@ export async function run() {
      * Registration is complete. Record the selection index from what was
      * imported, so even a filtered run keeps its entries complete.
      */
-    if (!process.env.JAPA_NO_SELECTION_INDEX && recordsCaches) {
+    // Parallel workers leave both caches to single-process runs. Six workers
+    // queueing on one lock to rewrite the same index stalled the end of the run.
+    if (!process.env.JAPA_NO_SELECTION_INDEX && !process.env.JAPA_SPEED_RUN_ID && recordsCaches) {
       const { flushDependencies } = await import('./src/dependencies.js')
       await flushDependencies(emitter)
       const { writeSelectionIndex } = await import('./src/selection_index.js')

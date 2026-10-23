@@ -2037,28 +2037,40 @@ test.describe('Agent loop safety', () => {
   })
 
   test('invalidate indexed freshness when a dependency changes', async () => {
-    const { isFresh } = await import('../src/selection_index.js')
-    const { mkdtemp, writeFile, stat, rm } = await import('node:fs/promises')
+    const { isFresh, readIndex, writeSelectionIndex } = await import('../src/selection_index.js')
+    const { readDependencyMap } = await import('../src/dependencies.js')
+    const { dependencyFile, indexFile } = await import('../src/cache_paths.js')
+    const { mkdtemp, mkdir, writeFile, rm } = await import('node:fs/promises')
+    const { dirname } = await import('node:path')
     const { fileURLToPath } = await import('node:url')
     const cwd = await mkdtemp(fileURLToPath(new URL('../.fresh-', import.meta.url)))
     try {
       await writeFile(`${cwd}/test.spec.ts`, '')
       await writeFile(`${cwd}/helper.ts`, 'export const title = "old"\n')
-      const testStats = await stat(`${cwd}/test.spec.ts`)
-      const helper = await stat(`${cwd}/helper.ts`)
-      const entry = {
-        mtimeMs: testStats.mtimeMs,
-        size: testStats.size,
-        tests: ['old'],
-        groups: [],
-        tags: [],
-        dependencies: {
-          'helper.ts': { mtimeMs: helper.mtimeMs, size: helper.size },
-        },
+      await mkdir(dirname(dependencyFile(cwd)), { recursive: true })
+      await writeFile(
+        dependencyFile(cwd),
+        JSON.stringify({ version: 1, complete: true, files: { 'test.spec.ts': ['helper.ts'] } })
+      )
+      const registered = {
+        suites: [
+          {
+            name: 'default',
+            stack: [
+              { options: { title: 'old', tags: [], meta: { fileName: `${cwd}/test.spec.ts` } } },
+            ],
+          },
+        ],
       }
-      assert.isTrue(await isFresh(cwd, 'test.spec.ts', entry))
+      await writeSelectionIndex(registered, cwd)
+      const index = await readIndex(indexFile(cwd))
+      const entry = index.files['test.spec.ts']
+      const dependencies = await readDependencyMap(dependencyFile(cwd))
+
+      assert.isString(entry.dependencyDigest)
+      assert.isTrue(await isFresh(cwd, 'test.spec.ts', entry, dependencies))
       await writeFile(`${cwd}/helper.ts`, 'export const title = "new"\n')
-      assert.isFalse(await isFresh(cwd, 'test.spec.ts', entry))
+      assert.isFalse(await isFresh(cwd, 'test.spec.ts', entry, dependencies))
     } finally {
       await rm(cwd, { recursive: true, force: true })
     }

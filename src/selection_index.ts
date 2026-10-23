@@ -7,6 +7,7 @@
  * file that was distributed with this source code.
  */
 
+import { createHash } from 'node:crypto'
 import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import debug from './debug.js'
@@ -34,8 +35,45 @@ export type IndexedFile = {
   dynamic?: boolean
   /** A pinned test must never be pruned by a title filter. */
   pinned?: boolean
-  /** Freshness of the files this test file imported when the index was written. */
-  dependencies?: Record<string, { mtimeMs: number; size: number }>
+  /**
+   * Digest of the size and mtime of every file this test file imported, in the
+   * dependency map's order. One string per entry instead of one stamp per import:
+   * an app whose specs each reach a thousand modules made the index hundreds of
+   * megabytes, and stat-ing every import of every spec stalled the run's end.
+   */
+  dependencyDigest?: string
+}
+
+type DependencyMap = Awaited<ReturnType<typeof readDependencyMap>>
+
+/** `size:mtime` per path, stat-ed once however many specs import it. */
+function stampReader(cwd: string) {
+  const stamps = new Map<string, Promise<string | null>>()
+  return (path: string) => {
+    let stamp = stamps.get(path)
+    if (!stamp) {
+      stamp = stat(join(cwd, path)).then(
+        (stats) => `${stats.size}:${stats.mtimeMs}`,
+        () => null
+      )
+      stamps.set(path, stamp)
+    }
+    return stamp
+  }
+}
+
+async function dependencyDigest(
+  files: string[] | undefined,
+  readStamp: ReturnType<typeof stampReader>
+) {
+  if (!files) return undefined
+  const hash = createHash('sha256')
+  for (const file of files) {
+    const stamp = await readStamp(file)
+    if (stamp === null) return undefined
+    hash.update(`${file}\0${stamp}\n`)
+  }
+  return hash.digest('hex')
 }
 
 export type SelectionIndex = {
@@ -143,18 +181,18 @@ export function shouldSkipFile(
   return false
 }
 
-/** True when the on-disk file still matches what the index recorded. */
-export async function isFresh(cwd: string, path: string, entry: IndexedFile) {
-  if (!entry.dependencies) return false
+/** True when the on-disk file and everything it imported still match the index. */
+export async function isFresh(
+  cwd: string,
+  path: string,
+  entry: IndexedFile,
+  dependencies: DependencyMap,
+  readStamp = stampReader(cwd)
+) {
+  if (!entry.dependencyDigest) return false
   const stats = await stat(join(cwd, path)).catch(() => null)
   if (!stats || stats.size !== entry.size || stats.mtimeMs !== entry.mtimeMs) return false
-  for (const [dependency, expected] of Object.entries(entry.dependencies)) {
-    const current = await stat(join(cwd, dependency)).catch(() => null)
-    if (!current || current.size !== expected.size || current.mtimeMs !== expected.mtimeMs) {
-      return false
-    }
-  }
-  return true
+  return (await dependencyDigest(dependencies.files[path], readStamp)) === entry.dependencyDigest
 }
 
 /**
@@ -184,9 +222,9 @@ export function selectionIndex(options: { file?: string; dir?: string } = {}): P
     if (!paths.length) return
 
     const keep: string[] = []
+    const readStamp = stampReader(cwd)
     for (const path of paths) {
-      const entry = index.files[path]
-      if (!(await isFresh(cwd, path, entry))) continue
+      if (!(await isFresh(cwd, path, index.files[path], dependencies, readStamp))) continue
       keep.push(path)
     }
     if (!keep.length) return
@@ -231,29 +269,14 @@ async function hasRuntimeTitles(path: string, entry: IndexedFile) {
  * the filter is, so a filtered run still writes complete entries for the files it
  * imported; skipped files keep their previous entries.
  */
-async function dependencyStamps(
-  cwd: string,
-  path: string,
-  dependencies: Awaited<ReturnType<typeof readDependencyMap>>
-) {
-  const files = dependencies.files[path]
-  if (!files) return {}
-  const stamps: NonNullable<IndexedFile['dependencies']> = {}
-  for (const dependency of files) {
-    const stats = await stat(join(cwd, dependency)).catch(() => null)
-    if (!stats) return {}
-    stamps[dependency] = { mtimeMs: stats.mtimeMs, size: stats.size }
-  }
-  return { dependencies: stamps }
-}
-
 async function collectIndex(
   runner: { suites: Array<{ name: string; stack: Array<unknown> }> },
   cwd: string,
   index: SelectionIndex,
-  dependencies: Awaited<ReturnType<typeof readDependencyMap>>
+  dependencies: DependencyMap
 ) {
   const seen = new Map<string, IndexedFile>()
+  const readStamp = stampReader(cwd)
 
   const record = (test: RegisteredTest, groupTitle?: string) => {
     const file = test.options?.meta?.fileName
@@ -304,8 +327,9 @@ async function collectIndex(
       tags: [...new Set(entry.tags)],
       ...(dynamic ? { dynamic: true } : {}),
       ...(entry.pinned ? { pinned: true } : {}),
-      ...(await dependencyStamps(cwd, path, dependencies)),
     }
+    const digest = await dependencyDigest(dependencies.files[path], readStamp)
+    if (digest) index.files[path].dependencyDigest = digest
   }
   return seen.size
 }
