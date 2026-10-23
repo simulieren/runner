@@ -8,18 +8,22 @@ async function main() {
   const options = separator < 0 ? cliArguments : cliArguments.slice(0, separator)
   if (separator < 0 || options.includes('--help')) {
     console.log(
-      'Usage: japa-parallel [--workers=4] [--history=path] [--cwd=path] -- node bin/test.js unit'
+      'Usage: japa-parallel [--workers=4|auto] [--history=path] [--cwd=path] -- node bin/test.js unit'
     )
     return options.includes('--help') ? 0 : 1
   }
-  let workers: number | undefined
+  let workers: number | 'auto' | undefined
   let historyFile: string | undefined
   let cwd: string | undefined
   for (let index = 0; index < options.length; index++) {
     const option = options[index]
-    if (option.startsWith('--workers=')) workers = Number(option.slice('--workers='.length))
-    else if (option === '--workers') workers = Number(options[++index])
-    else if (option.startsWith('--cwd=')) cwd = option.slice('--cwd='.length)
+    if (option.startsWith('--workers=')) {
+      const value = option.slice('--workers='.length)
+      workers = value === 'auto' ? 'auto' : Number(value)
+    } else if (option === '--workers') {
+      const value = options[++index]
+      workers = value === 'auto' ? 'auto' : Number(value)
+    } else if (option.startsWith('--cwd=')) cwd = option.slice('--cwd='.length)
     else if (option === '--cwd') {
       cwd = options[++index]
       if (!cwd) throw new Error('--cwd requires a directory')
@@ -30,6 +34,7 @@ async function main() {
     } else throw new Error(`Unknown coordinator option: ${option}`)
   }
   const [command, ...args] = cliArguments.slice(separator + 1)
+  const updateBaseline = args.includes('--update-baseline')
   const controller = new AbortController()
   let signalCode: number | undefined
   const interrupt = () => {
@@ -49,14 +54,24 @@ async function main() {
       workers,
       historyFile,
       cwd,
+      updateBaseline,
       signal: controller.signal,
     })
     for (const worker of result.workers) {
       if (worker.error) console.error(`[japa-parallel] worker ${worker.worker}: ${worker.error}`)
     }
+    if (updateBaseline && !result.baselineUpdated) {
+      console.error('[japa-parallel] baseline not updated: the run was partial or incomplete')
+    } else if (updateBaseline && result.baselineChanges?.added && result.baselineChanges.removed) {
+      console.error(
+        `[japa-parallel] baseline changed in both directions ` +
+          `(${result.baselineChanges.added} added, ${result.baselineChanges.removed} removed); ` +
+          'rerun on a quiet machine if unexpected'
+      )
+    }
     const exitCode = signalCode ?? result.exitCode
     console.log(
-      `[japa-parallel] workers=${result.workers.length} exit=${exitCode} timings=${result.historyUpdated ? 'updated' : 'unchanged'}`
+      `[japa-parallel] workers=${result.workers.length} exit=${exitCode} timings=${result.historyUpdated ? 'updated' : 'unchanged'}${result.baselineUpdated ? ' baseline=updated' : ''}`
     )
     return exitCode
   } finally {

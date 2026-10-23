@@ -1,7 +1,7 @@
 {
   "name": "@japa/runner",
   "description": "A simple yet powerful testing framework for Node.js",
-  "version": "5.4.0-speed.4",
+  "version": "5.4.0-speed.5",
   "engines": {
     "node": ">=18.16.0"
   },
@@ -106,7 +106,8 @@
       "./factories/main.ts",
       "./modules/core/main.ts",
       "./src/parallel.ts",
-      "./bin/parallel.ts"
+      "./bin/parallel.ts",
+      "./bin/agent.ts"
     ],
     "outDir": "./build",
     "clean": true,
@@ -161,6 +162,7 @@
     "packages/core"
   ],
   "bin": {
-    "japa-parallel": "build/bin/parallel.js"
+    "japa-parallel": "build/bin/parallel.js",
+    "japa-agent": "build/bin/agent.js"
   }
 }

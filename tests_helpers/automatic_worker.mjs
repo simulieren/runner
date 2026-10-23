@@ -39,6 +39,7 @@ processCLIArgs(process.argv.slice(2))
 const costs = [30, 1, 20, 1, 10, 1]
 const files = costs.map((_, i) => pathToFileURL(resolve(`file${i}.spec.ts`)))
 const executed = []
+const imported = []
 let estimates
 configure({
   files: () => files,
@@ -55,14 +56,29 @@ configure({
       if (process.env.TEST_TAMPER === '1') config.shardDurations = {}
     },
   ],
+  setup: [
+    async () => {
+      await writeFile(resolve('setup-ran.json'), '1')
+    },
+  ],
   reporters: { activated: [], list: [] },
   importer(url) {
+    imported.push(url.href.split('/').pop())
     const index = files.findIndex((file) => file.href === url.href)
-    test(`case ${index}`, async () => {
-      executed.push(index)
-      if (process.env.TEST_FAIL === '1' && index < 2) throw new Error('Expected fixture failure')
-      await new Promise((done) => setTimeout(done, costs[index]))
-    })
+    const define = () =>
+      test(`case ${index}`, async () => {
+        executed.push(index)
+        if (process.env.TEST_FAIL === '1' && index < 2) throw new Error('Expected fixture failure')
+        await new Promise((done) => setTimeout(done, costs[index]))
+      })
+    if (process.env.TEST_HOOK_FAIL === '1' && index === 0) {
+      test.group('failing hook', (group) => {
+        group.setup(() => {
+          throw new Error('Expected fixture hook failure')
+        })
+        define()
+      })
+    } else define()
   },
 })
 await run()
@@ -72,4 +88,7 @@ if (process.env.TEST_DUPLICATE_OUTPUT === '1' && process.env.JAPA_SPEED_OUTPUT) 
   report.durations = { 'default:duplicate.spec.ts': 1 }
   await writeFile(process.env.JAPA_SPEED_OUTPUT, JSON.stringify(report))
 }
-await writeFile(resolve(`observed-${worker}.json`), JSON.stringify({ executed, estimates }))
+await writeFile(
+  process.env.TEST_OBSERVED ?? resolve(`observed-${worker}.json`),
+  JSON.stringify({ executed, estimates, imported })
+)

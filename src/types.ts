@@ -51,6 +51,14 @@ export type CLIArgs = {
   help?: boolean
   matchAll?: boolean
   listPinned?: boolean
+  allowKnownFailures?: boolean
+  updateBaseline?: boolean
+  reporterAgent?: boolean
+  changed?: string
+  prepareCaches?: boolean
+  failedNew?: boolean
+  agentFile?: string
+  cacheDir?: string
   bail?: boolean
   bailLayer?: string
   shard?: string

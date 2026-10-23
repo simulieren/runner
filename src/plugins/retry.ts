@@ -50,6 +50,17 @@ export const retryPlugin: PluginFn = async function retry({ config, cliArgs }) {
         const cached = await getFailedTests(config.cwd)
         tests = cached.tests
       }
+      /**
+       * With a committed baseline, `--failed-new` skips failures that are already
+       * expected. Matching is by title, because the retry cache stores titles;
+       * opt-in so the imprecise identity can never silently hide a regression.
+       */
+      if (cliArgs.failedNew && tests?.length) {
+        const { readBaseline, baselineFile } = await import('../failure_baseline.js')
+        const baseline = await readBaseline(baselineFile(config.cwd))
+        const known = new Set(baseline.failures.map((entry) => entry.title))
+        if (known.size) tests = tests.filter((title) => !known.has(title))
+      }
       if (!tests || !tests.length) {
         console.log(colors.bgYellow().black(' No failing tests found. Running all the tests '))
         return

@@ -12,8 +12,20 @@ import { mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promis
 import { dirname, join, relative, resolve } from 'node:path'
 import debug from './debug.js'
 import type { PluginFn } from './types.js'
+import type { BaselineEntry } from './failure_baseline.js'
+import { withCacheLock } from './cache_lock.js'
 
 const REGISTERED = new WeakSet<object>()
+
+/**
+ * How a freshly measured file cost is combined with the previous estimate.
+ *
+ * A single contended run (another worker hammering the database) can inflate a
+ * file's cost by seconds and poison the next assignment. A plain move toward
+ * the new value dampens that: cheap when the estimate was far off, cautious when
+ * it already matched.
+ */
+export const HISTORY_ALPHA = 0.5
 
 export type DurationMap = Record<string, number>
 export type History = {
@@ -22,13 +34,40 @@ export type History = {
   durations: DurationMap
   runId?: string
   failedTests?: string[]
+  /** Only written by managed workers when the coordinator collects a baseline. */
+  failures?: BaselineEntry[]
 }
-export type WorkerHistory = History & { worker: number; total: number; complete: boolean }
+export type WorkerHistory = History & {
+  worker: number
+  total: number
+  complete: boolean
+  /** Present when the coordinator asked for baseline collection. */
+  failures?: BaselineEntry[]
+}
 
 export function historyFile(cwd: string, file?: string) {
   if (file) return resolve(cwd, file)
   const id = createHash('sha256').update(cwd).digest('hex').slice(0, 16)
   return join(cwd, 'node_modules', '.cache', 'japa', `durations-${id}.json`)
+}
+
+/** Smoothed estimate: keep most of a known cost, fully adopt an unknown one. */
+export function blendDuration(previous: number | undefined, measured: number) {
+  if (previous === undefined || !Number.isFinite(previous)) return measured
+  return Math.round((previous + HISTORY_ALPHA * (measured - previous)) * 1000) / 1000
+}
+
+/**
+ * Estimated `runner:end` work: reporting, hook teardown and the child's own exit.
+ *
+ * File estimates only sum test durations, so a loaded worker looks as if it has
+ * spare room while it is still finishing the run. Charging the slowest observed
+ * overrun keeps the planning penalty proportional to real observed cost.
+ */
+export function overheadFor(durations: DurationMap) {
+  let max = 0
+  for (const value of Object.values(durations)) if (value > max) max = value
+  return Math.min(5000, Math.round(max * 0.05))
 }
 
 export function parseHistory(value: unknown, cwd: string): History {
@@ -53,6 +92,18 @@ export function parseHistory(value: unknown, cwd: string): History {
     }
     durations[file] = duration
   }
+  let failures: BaselineEntry[] | undefined
+  if ('failures' in value && Array.isArray(value.failures)) {
+    failures = value.failures.filter((entry): entry is BaselineEntry =>
+      Boolean(
+        entry &&
+        typeof entry === 'object' &&
+        typeof entry.suite === 'string' &&
+        typeof entry.file === 'string' &&
+        typeof entry.title === 'string'
+      )
+    )
+  }
   let failedTests: string[] | undefined
   if ('failedTests' in value) {
     if (
@@ -67,6 +118,7 @@ export function parseHistory(value: unknown, cwd: string): History {
     cwd,
     durations,
     ...(failedTests ? { failedTests } : {}),
+    ...(failures ? { failures } : {}),
     ...('runId' in value && typeof value.runId === 'string' ? { runId: value.runId } : {}),
   }
 }
@@ -92,7 +144,10 @@ export async function writeHistory(file: string, data: History | WorkerHistory) 
   }
 }
 
-/** Learn file costs on complete runs and load them before planning. */
+/**
+ * Learn file costs on complete runs and load them before planning. Files with a
+ * failing test keep their previous estimate, so an always-red suite still trains.
+ */
 export function durationHistory(options: { file?: string } = {}): PluginFn {
   return async ({ config, cliArgs, runner, emitter }) => {
     if (cliArgs.listPinned || REGISTERED.has(runner)) return
@@ -139,10 +194,21 @@ export function durationHistory(options: { file?: string } = {}): PluginFn {
 
     REGISTERED.add(runner)
     const durations: DurationMap = Object.create(null)
+    const failedFiles = new Set<string>()
+    const failures: BaselineEntry[] = []
+    const collectFailures = process.env.JAPA_SPEED_COLLECT_FAILURES === '1'
     let suite = 'default'
     let pinned = false
+    // A failed suite/group hook can skip tests, leaving file costs incomplete.
+    let hookFailed = false
     const offSuite = emitter.on('suite:start', (payload) => {
       suite = payload.name
+    })
+    const offSuiteEnd = emitter.on('suite:end', (payload) => {
+      if (payload.errors.length) hookFailed = true
+    })
+    const offGroupEnd = emitter.on('group:end', (payload) => {
+      if (payload.errors.length) hookFailed = true
     })
     const offTest = emitter.on('test:end', (payload) => {
       if (payload.isPinned) pinned = true
@@ -151,15 +217,24 @@ export function durationHistory(options: { file?: string } = {}): PluginFn {
       const path = relative(cwd, file).split('\\').join('/')
       const key = `${suite}:${path}`
       durations[key] = (durations[key] ?? 0) + payload.duration
+      if (payload.hasError) {
+        failedFiles.add(key)
+        if (collectFailures) {
+          failures.push({ suite, file: path, title: payload.title.expanded })
+        }
+      }
     })
-    const offEnd = emitter.on('runner:end', async (payload) => {
+    const offEnd = emitter.on('runner:end', async () => {
       offSuite()
+      offSuiteEnd()
+      offGroupEnd()
       offTest()
       offEnd()
       const partial =
         pinned ||
         (['tests', 'groups', 'tags'] as const).some((filter) => config.filters[filter]?.length)
-      const complete = !partial && !payload.hasError
+      const complete = !partial && !hookFailed
+      for (const key of failedFiles) delete durations[key]
       if (managed) {
         await writeHistory(output!, {
           version: 1,
@@ -169,16 +244,23 @@ export function durationHistory(options: { file?: string } = {}): PluginFn {
           total: Number(process.env.JAPA_WORKER_COUNT),
           complete,
           failedTests: runner.getSummary().failedTestsTitles,
+          ...(collectFailures ? { failures } : {}),
           durations: complete ? durations : {},
         })
       } else if (complete) {
         try {
           const file = historyFile(cwd, options.file)
-          const latest = await readHistory(file, cwd)
-          await writeHistory(file, {
-            version: 1,
-            cwd,
-            durations: { ...latest.durations, ...durations },
+          await withCacheLock(file, async () => {
+            const latest = await readHistory(file, cwd)
+            const merged: DurationMap = { ...latest.durations }
+            for (const [key, measured] of Object.entries(durations)) {
+              merged[key] = blendDuration(merged[key], measured)
+            }
+            await writeHistory(file, {
+              version: 1,
+              cwd,
+              durations: merged,
+            })
           })
         } catch (error) {
           // A performance cache must not turn a passing serial run into a failure.

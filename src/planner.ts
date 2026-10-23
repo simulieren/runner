@@ -11,6 +11,7 @@ import { relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import validator from './validator.js'
 import { FilesManager } from './files_manager.js'
+import { getSelectionPlan, setSelectionStats } from './planning_state.js'
 import type { NamedReporterContract, NormalizedConfig, TestFiles, TestSuite } from './types.js'
 
 /**
@@ -21,6 +22,7 @@ import type { NamedReporterContract, NormalizedConfig, TestFiles, TestSuite } fr
 export class Planner {
   #config: NormalizedConfig
   #fileManager = new FilesManager()
+  #collected = 0
 
   constructor(config: NormalizedConfig) {
     validator.validateActivatedReporters(config!)
@@ -50,7 +52,28 @@ export class Planner {
       filesURLs = this.#fileManager.grep(filesURLs, this.#config.filters.files)
     }
 
-    return filesURLs
+    const collected = filesURLs.length
+    const selected = this.#applySelectionIndex(filesURLs)
+    this.#collected += collected
+    return selected
+  }
+
+  /**
+   * Drop files that the selection index proved cannot match the active filters,
+   * and remember which files it has seen. A file the index has never seen is
+   * always kept: a file added since the last indexed run must never be dropped.
+   */
+  #applySelectionIndex(filesURLs: URL[]) {
+    const selection = getSelectionPlan(this.#config)
+    if (!selection) return filesURLs
+    const only = selection.only ? new Set<string>(selection.only) : undefined
+    const scope = new Set<string>(selection.skipWithin ?? [])
+    const skip = new Set<string>(selection.skip ?? [])
+    return filesURLs.filter((url) => {
+      const path = relative(this.#config.cwd, fileURLToPath(url)).split('\\').join('/')
+      if (only) return only.has(path)
+      return !scope.has(path) || !skip.has(path)
+    })
   }
 
   /**
@@ -156,6 +179,10 @@ export class Planner {
     }
 
     this.#applyShard(suites)
+    setSelectionStats(this.#config, {
+      collected: this.#collected,
+      planned: suites.reduce((total, suite) => total + suite.filesURLs.length, 0),
+    })
     return suites
   }
 
