@@ -24,6 +24,11 @@ export type IndexedFile = {
   tests: string[]
   groups: string[]
   tags: string[]
+  /**
+   * The file builds titles at run time (datasets). Its registered titles are not
+   * the titles that will run, so a title filter must never skip it.
+   */
+  dynamic?: boolean
 }
 
 export type SelectionIndex = {
@@ -98,6 +103,8 @@ export function shouldSkipFile(
   const has = (values?: string[]) => Boolean(values && values.length)
 
   if (has(filters.tests)) {
+    // Registered titles cannot represent dataset rows, so keep such files.
+    if (entry.dynamic) return false
     const matched = filters.tests!.some(
       (needle) => matchesFilter(needle, entry.tests) || matchesFilter(needle, entry.groups)
     )
@@ -172,6 +179,20 @@ type RegisteredTest = {
 type RegisteredGroup = { title?: string; tests?: RegisteredTest[] }
 
 /**
+ * Datasets expand one registration into many titles at execution time. Array
+ * datasets are visible on the registered test; function datasets are not, so the
+ * file's source is checked conservatively. Keeping the file costs an import;
+ * dropping it would silently skip tests.
+ */
+async function hasRuntimeTitles(path: string, entry: IndexedFile) {
+  if (entry.tests.length) {
+    const source = await readFile(path, 'utf8').catch(() => '')
+    if (/\.with\s*\(/.test(source)) return true
+  }
+  return false
+}
+
+/**
  * Walk the registered suites and record every test per file.
  *
  * Registration, not execution, is what makes this cheap and correct: importing a
@@ -214,12 +235,19 @@ async function collectIndex(
   for (const [path, entry] of seen) {
     const stats = await stat(join(cwd, path)).catch(() => null)
     if (!stats) continue
+    const previous = index.files[path]
+    const unchanged = previous && previous.mtimeMs === stats.mtimeMs && previous.size === stats.size
+    const dynamic =
+      unchanged && previous.dynamic !== undefined
+        ? previous.dynamic
+        : await hasRuntimeTitles(join(cwd, path), entry)
     index.files[path] = {
       mtimeMs: stats.mtimeMs,
       size: stats.size,
       tests: [...new Set(entry.tests)],
       groups: [...new Set(entry.groups)],
       tags: [...new Set(entry.tags)],
+      ...(dynamic ? { dynamic: true } : {}),
     }
   }
   return seen.size

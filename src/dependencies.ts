@@ -11,7 +11,8 @@ import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { registerHooks } from 'node:module'
 import { promisify } from 'node:util'
-import { relative, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import debug from './debug.js'
 import type { PluginFn } from './types.js'
@@ -130,51 +131,62 @@ export function recordDependencies(options: { file?: string } = {}): PluginFn {
     const cwd = config.cwd
     const target = dependencyFile(cwd, options.file)
     const map = await readDependencyMap(target)
-    const current = new Map<string, Set<string>>()
-    let active: string | undefined
+    const testFiles = new Set<string>()
+    const edges = new Map<string, Set<string>>()
 
-    const record = (path: string) => {
-      if (!active || path.startsWith('..') || path.includes('node_modules')) return
-      current.get(active)?.add(path)
+    const addEdge = (parent: string, child: string) => {
+      let set = edges.get(parent)
+      if (!set) edges.set(parent, (set = new Set()))
+      set.add(child)
     }
 
-    // ESM has no module registry to read after the fact, so record loads as the
-    // loader sees them. Only project files are kept; node_modules would dominate.
+    /**
+     * ESM loads a shared module once, so attributing loads to whichever test file
+     * happened to import it first would miss every later importer. Record the
+     * resolution edge (importer -> imported) instead, then walk the graph from
+     * each test file. Resolve runs per parent URL, so shared modules keep every
+     * incoming edge even when the module itself is cached.
+     */
     registerHooks({
-      load(url, context, nextLoad) {
-        const result = nextLoad(url, context)
-        if (!active || !url.startsWith('file:')) return result
-        record(relative(cwd, fileURLToPath(url)).split('\\').join('/'))
+      resolve(specifier, context, nextResolve) {
+        const result = nextResolve(specifier, context)
+        const parent = context.parentURL?.split('?')[0]
+        const child = result?.url?.split('?')[0]
+        if (parent?.startsWith('file:') && child?.startsWith('file:')) addEdge(parent, child)
         return result
       },
     })
 
-    /**
-     * Imports happen before any test starts, so the file being imported is only
-     * known here. Wrapping the importer is what makes source-file attribution
-     * possible at all; attributing on `test:start` would only ever see modules
-     * loaded lazily during test execution.
-     */
     const importer = config.importer
     config.importer = async (fileURL) => {
-      const previous = active
-      active = relative(cwd, fileURLToPath(fileURL)).split('\\').join('/')
-      if (!current.has(active)) current.set(active, new Set())
-      try {
-        return await importer(fileURL)
-      } finally {
-        active = previous
-      }
+      testFiles.add(relative(cwd, fileURLToPath(fileURL)).split('\\').join('/'))
+      return importer(fileURL)
     }
 
     const write = async () => {
-      if (!current.size) return
-      for (const [testFile, dependencies] of current) {
-        // Merge with what this file depended on before: a module only used by an
-        // earlier run is still a dependency of the file that imported it.
-        const merged = new Set([...(map.files[testFile] ?? []), ...dependencies])
-        map.files[testFile] = [...merged].sort()
+      if (!testFiles.size) return
+      for (const testFile of testFiles) {
+        const root = pathToFileURL(join(cwd, testFile)).href
+        const visited = new Set<string>()
+        const queue = [root]
+        while (queue.length) {
+          const current = queue.pop()!
+          if (visited.has(current)) continue
+          visited.add(current)
+          for (const next of edges.get(current) ?? []) {
+            if (!visited.has(next)) queue.push(next)
+          }
+        }
+
+        const project = new Set(map.files[testFile] ?? [])
+        for (const url of visited) {
+          const path = relative(cwd, fileURLToPath(url)).split('\\').join('/')
+          if (path.startsWith('..') || path.includes('node_modules')) continue
+          project.add(path)
+        }
+        map.files[testFile] = [...project].sort()
       }
+
       try {
         const { mkdir, rename, writeFile } = await import('node:fs/promises')
         const temporary = `${target}.${process.pid}.tmp`
@@ -191,7 +203,6 @@ export function recordDependencies(options: { file?: string } = {}): PluginFn {
     activeWriter = write
 
     emitter.once('runner:end', (): boolean => {
-      active = undefined
       void write()
       return true
     })

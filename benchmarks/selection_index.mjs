@@ -45,8 +45,24 @@ test('a tag filter keeps files tagged accordingly', () => {
 })
 
 test('combined filters drop a file when any layer cannot match', () => {
-  assert.equal(shouldSkipFile(entry, { tests: ['returns the commission'], tags: ['@billing'] }), true)
-  assert.equal(shouldSkipFile(entry, { tests: ['returns the commission'], tags: ['@referrals'] }), false)
+  assert.equal(
+    shouldSkipFile(entry, { tests: ['returns the commission'], tags: ['@billing'] }),
+    true
+  )
+  assert.equal(
+    shouldSkipFile(entry, { tests: ['returns the commission'], tags: ['@referrals'] }),
+    false
+  )
+})
+
+test('a file with runtime titles is never skipped by a title filter', () => {
+  const dynamic = { ...entry, dynamic: true }
+  assert.equal(
+    shouldSkipFile(dynamic, { tests: ['a title that only exists as a dataset row'] }),
+    false
+  )
+  // Group and tag filters can still prune it: those are recorded at registration.
+  assert.equal(shouldSkipFile(dynamic, { groups: ['no such group'] }), true)
 })
 
 test('no filters never skips', () => {

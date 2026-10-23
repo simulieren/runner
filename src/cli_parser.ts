@@ -41,6 +41,7 @@ const OPTIONS = {
     'reporterAgent',
     'prepare',
     'failedNew',
+    'agentAll',
   ],
   alias: {
     forceExit: 'force-exit',
@@ -52,6 +53,7 @@ const OPTIONS = {
     reporterAgent: 'agent',
     agentFile: 'agent-file',
     failedNew: 'failed-new',
+    agentAll: 'agent-all',
     help: 'h',
   },
 }
@@ -83,6 +85,7 @@ ${colors.green('--changed')}                   ${colors.dim('Run only files affe
 ${colors.green('--failed-new')}                ${colors.dim('With --failed, skip failures already recorded in japa.baseline.json')}
 ${colors.green('--prepare')}                   ${colors.dim('Build the selection and dependency caches without running tests')}
 ${colors.green('--agent-file')}                ${colors.dim('Write agent JSON lines to a file instead of stdout')}
+${colors.green('--agent-all')}                 ${colors.dim('With the agent reporter, emit passing tests too')}
 ${colors.green('-h, --help')}                  ${colors.dim('View help')}
 
 ${colors.yellow('Examples:')}

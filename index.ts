@@ -184,7 +184,7 @@ export function configure(options: Config) {
           : [
               ...(configured.list ?? []),
               agentReporter({
-                onlyFailures: true,
+                onlyFailures: !cliArgs.agentAll,
                 compact: true,
                 file: cliArgs.agentFile,
               }),

@@ -40,6 +40,7 @@ a targeted cold run.
 | `--update-baseline` | Rewrite `japa.baseline.json` from this run, awaited before exit. |
 | `--agent` | Replace reporters with bounded JSON lines on stdout. |
 | `--agent-file=path` | Write that JSON to a file, keeping application stdout separate. |
+| `--agent-all` | With the agent reporter, emit passing tests too (useful for identity diffs). |
 
 ## Exit codes
 
@@ -76,6 +77,8 @@ The selection features are built to run too much rather than too little:
 
 - A file whose size or mtime changed since indexing is always imported.
 - A file the index has never seen is always imported.
+- A file with runtime-built titles (datasets) is never skipped by a title filter,
+  because its registered titles are not the titles that will run.
 - `--changed` falls back to the whole suite if any changed path is unknown.
 - `--failed-new` matches by title only, so it is opt-in; a title that is both
   known-failing and newly failing elsewhere cannot be distinguished.

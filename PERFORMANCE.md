@@ -94,7 +94,7 @@ status, file, group, title, duration and bounded errors, plus a final
 pathological stack cannot flood the reader.
 
 `--agent` emits failing, skipped and todo tests only, because a large suite would
-otherwise produce thousands of passing lines. Use
+otherwise produce thousands of passing lines. Use `--agent-all` or
 `agent({ onlyFailures: false })` from `@japa/runner/reporters` for the full
 stream. `--agent-file=path` writes the same lines to a file, so application output
 on stdout cannot corrupt the stream. Under the agent reporter, setup and planning
@@ -102,12 +102,16 @@ failures exit 2, while test failures exit 1.
 
 ### Change-aware selection (`--changed=path1,path2`)
 
-While a run imports test files, the loader records which project files each test
-file loaded, under `node_modules/.cache/japa/dependencies.json`. Attribution wraps
-the file importer, not test execution: a test file's imports happen before any
-test starts. A later `--changed=<edited files>` run imports only the test files
-that depend on them, including files reached through a helper or a chain of
-imports.
+While a run imports test files, a resume hook records the resolution edge from
+each module to the modules it imports, and the importer marks the test files
+being loaded. The map is written to
+`node_modules/.cache/japa/dependencies.json` as the transitive closure of each
+test file over those edges.
+
+Edges, not load events, are what make this correct: ESM loads a shared module
+only once, so attributing loads would assign it to whichever test file imported
+it first and miss every later importer. A later `--changed=<edited files>` run
+imports the test files whose closure reaches them, including shared modules.
 
 If any given path is not in the map (a new module, a config file, a lockfile),
 Japa runs the full suite instead, because running too much is safe and running too

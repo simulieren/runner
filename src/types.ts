@@ -58,6 +58,7 @@ export type CLIArgs = {
   prepare?: boolean
   failedNew?: boolean
   agentFile?: string
+  agentAll?: boolean
   bail?: boolean
   bailLayer?: string
   shard?: string

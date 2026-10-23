@@ -51,8 +51,9 @@ export class Planner {
       filesURLs = this.#fileManager.grep(filesURLs, this.#config.filters.files)
     }
 
+    const collected = filesURLs.length
     const selected = this.#applySelectionIndex(filesURLs)
-    this.#collected += selected.length
+    this.#collected += collected
     return selected
   }
 

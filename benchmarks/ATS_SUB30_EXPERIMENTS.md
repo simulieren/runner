@@ -464,3 +464,75 @@ NODE_COMPILE_CACHE=$PWD/.benchmarks/ats-validation/compile-cache \
 
 For a timed run, the commands are unchanged from "Reproducing" above. Compare only
 runs taken under similar host load, and record load averages next to the label.
+
+## Follow-up: agent features validated on ATS (23 October 2026)
+
+The agent-facing selection features were validated in the isolated lab. These are
+correctness results, not timing claims: the host carried load averages of 8–10 and
+even the unmodified runner measured about 50 s for the full suite.
+
+### Caches
+
+`--prepare` (imports only, no tests) completed in **9.04–9.38 s** and wrote both
+caches for 648 test files:
+
+- selection index: 8,296 registered titles, 3 files flagged as building titles at
+  run time (datasets);
+- dependency map: 1,027 project modules and 23,563 test-file links, i.e. a
+  transitive closure rather than 197 first-importer links.
+
+The first attempt exposed two bugs that are now fixed:
+
+1. The index recorded only executed tests, so a dataset-expanded title could be
+   absent and its file skipped. Files containing `.with(` are now never pruned by
+   a title filter.
+2. Dependency attribution ran on load events, so a shared module was credited to
+   the first test file that imported it. Attribution now records resolve edges and
+   walks the graph, which raised the links from 197 to 23,563.
+
+A third bug was in the reported selection size: `collected` counted post-filter
+files, so the summary claimed `skipped: 0` while 644 files were actually pruned.
+
+### Filtered selection
+
+One test (`getCacheVersion is stable and namespaced`) in a 126-test file, serial:
+
+| Variant | Planned files | Skipped | Import phase | Wall |
+| --- | ---: | ---: | ---: | ---: |
+| Index enabled | 4 (1 match + 3 runtime-title files) | 644 | 748 ms | 5.83 s |
+| `JAPA_NO_SELECTION_INDEX=1` | 648 | 0 | 3,886 ms | 8.08 s |
+
+Identical test identity in both runs. The import phase is load-independent and is
+the number to quote: **5.2× less import time**; wall time still includes the ~4.9 s
+Adonis boot.
+
+### Change selection
+
+Editing `app/exceptions/client_disconnect.ts` (one dependent test file) and running
+`--changed=<path>` selected **1 file / 5 tests**, skipped 647, and produced exactly
+the same identities as `--files=exceptions/client_disconnect`. The edit was
+reverted; the copied app's working tree is unchanged by this probe.
+
+### Baseline
+
+Using `--files=schema_no_any` (two known failures):
+
+- `--update-baseline` wrote both failures with suite, file and title;
+- `--allow-known-failures` exited **0** and reported `baseline: {known: 2, new: 0}`;
+- the same selection without the flag exited **1**.
+
+### Full suite regression
+
+One six-worker run with the selection features enabled: **49.437 s** (load-affected;
+not a timing result), all **8,515** identities, no missing, extra or duplicate
+tests. Failures were 22: the 19 baseline plus four
+`admin_notification_channel_service` assertions that pass **49/49 in isolation**
+and have appeared in earlier loaded runs. They are cross-file/load flakes, not a
+regression from these features.
+
+### Lab state
+
+Caches were built by `--prepare` and updated by later runs. The full-run identity
+comparison is `p1-full-w6`. Raw logs, JSONL and run records remain under ignored
+`.benchmarks/ats-validation/`. The temporary baseline file was removed and the
+Compose project was stopped after the probes.
