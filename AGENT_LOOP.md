@@ -74,18 +74,71 @@ test failures.
 
 ## AdonisJS
 
-AdonisJS already runs Japa through `Ignitor.testRunner()` in `bin/test.ts`, so no
-integration code is required. Pass flags through Ace:
+AdonisJS runs Japa through `Ignitor.testRunner()` in `bin/test.ts`. One line is needed:
+Adonis loads providers, preloads and config before `configure()`, so without it the
+dependency map never completes and `--changed` always runs the full suite.
 
-```sh
-node ace test -- --prepare-caches --cache-dir=.japa
-node ace test -- --changed=auto --agent --agent-file=report.jsonl
-node ace test -- --tests="returns 404" --agent
+```ts
+// bin/test.ts
+import { configure, processCLIArgs, recordImportsFromStart, run } from '@japa/runner'
+
+process.env.NODE_ENV = 'test'
+recordImportsFromStart() // before new Ignitor(...)
 ```
 
-Parallel runs need per-worker database, Redis, search and port isolation from the
-application. Japa supplies `JAPA_WORKER_ID` and `JAPA_WORKER_COUNT`; derive the
-rest from them in the test bootstrap.
+Ace forwards the new flags unchanged:
+
+```sh
+node ace test unit functional --prepare-caches
+node ace test unit --changed=auto --agent-file=tests/results/agent.jsonl
+node ace test unit --tests="returns 404" --agent-file=tests/results/agent.jsonl
+```
+
+Run `japa-parallel` against the entrypoint directly; each worker then skips Ace's boot:
+
+```sh
+JAPA_WORKERS=6 npx japa-parallel -- node --import=@poppinss/ts-exec bin/test.ts unit
+```
+
+Parallel runs need per-worker resources from the application. Japa supplies
+`JAPA_WORKER_ID` and `JAPA_WORKER_COUNT`; set the rest in `bin/test.ts` before the
+Ignitor boots, because Adonis never overwrites a variable already in `process.env`:
+
+```ts
+const worker = Number(process.env.JAPA_WORKER_ID)
+if (Number.isInteger(worker) && worker > 0) {
+  process.env.DB_DATABASE = `myapp_test_w${worker}` // create it here: providers query it during boot
+  process.env.REDIS_DB = String(worker) // read it in config/redis.ts
+  process.env.PORT = String(24_330 + worker)
+}
+```
+
+Things that broke a real app under `japa-parallel` and how they show up:
+
+- A teardown hook that calls `process.exit()` on a timer. Japa writes the worker report
+  after teardown, so the worker exits 0 and the coordinator reports a missing report.
+  Exit only after `run()` resolves.
+- A connection a test never releases. `app.terminate()` waits in the database
+  provider's shutdown, and the worker never finishes. Same symptom.
+- Vite's WebSocket server. Each worker opens one; set `server.ws: false` under test.
+- Shared process state (`mail.fake()`, sinon stubs, fake clocks). Sharding changes which
+  files share a process, so a leak that serial order hid becomes a failure.
+
+## Warnings
+
+Japa warns on stderr, so agent JSON on stdout stays parseable.
+
+| Warning | Fix |
+| --- | --- |
+| `--changed is running the full suite: no dependency map yet` | Run once with `--prepare-caches`. |
+| `... the dependency map is incomplete` | Call `recordImportsFromStart()` at the top of the entrypoint, then `--prepare-caches`. |
+| `... N changed path(s) no test file imports` | Expected for configs and lazily loaded files (routes, controllers). A new spec needs `--prepare-caches`. |
+| `... this Node has no module.registerHooks` | Use Node 22.15+ or 23.5+. |
+| `The dependency map is incomplete: N file(s) imported other files before Japa could record them` | Printed by `--prepare-caches`; same fix as above. |
+| `[japa-parallel] N workers on M CPUs` | Use fewer workers or `--workers=auto`. |
+| `worker N: exited with code C before writing its report` | See the parallel list above. |
+
+The agent summary carries the same reason as `selection.fallbackReason`.
 
 ## Safety rules
 
