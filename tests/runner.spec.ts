@@ -1295,13 +1295,13 @@ test.describe('Automatic duration history and worker coordination', () => {
     const { promisify } = await import('node:util')
     const cwd = await mkdtemp(fileURLToPath(new URL('../.agent-file-', import.meta.url)))
     context.after(() => rm(cwd, { recursive: true, force: true }))
-    const runner = pathToFileURL(fileURLToPath(new URL('../index.ts', import.meta.url))).href
+    const runnerEntry = pathToFileURL(fileURLToPath(new URL('../index.ts', import.meta.url))).href
     await writeFile(`${cwd}/one.spec.ts`, '')
     await writeFile(
       `${cwd}/entry.ts`,
       [
         `import { writeFileSync } from 'node:fs'`,
-        `import { configure, processCLIArgs, run, test } from '${runner}'`,
+        `import { configure, processCLIArgs, run, test } from '${runnerEntry}'`,
         `processCLIArgs(process.argv.slice(2))`,
         `const marker = { name: 'marker', handler: (_runner, emitter) => {`,
         `  emitter.on('runner:end', () => writeFileSync('marker.txt', 'ran'))`,
