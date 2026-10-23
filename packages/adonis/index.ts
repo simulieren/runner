@@ -1,3 +1,12 @@
+/*
+ * @japa/adonis
+ *
+ * (c) Japa
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 /**
  * AdonisJS helpers for isolated Japa test workers.
  *
@@ -91,8 +100,8 @@ export function workerResources(worker: number, config: WorkerConfig = {}): Work
   const httpHost = config.httpHost ?? '127.0.0.1'
   const smtpHost = config.smtpHost ?? '127.0.0.1'
   const searchHost = config.searchHost ?? '127.0.0.1'
-  const databasePrefix = config.databasePrefix ?? 'japa_speed_worker'
-  const searchPrefix = config.searchPrefix ?? 'japa_speed_validation'
+  const databasePrefix = config.databasePrefix ?? 'japa_test_'
+  const searchPrefix = config.searchPrefix ?? 'japa_validation'
   const httpPort = derivedPort(config.httpBasePort ?? 24330, worker)
   const mailpitPort = derivedPort(config.mailpitBasePort ?? 28024, worker)
 

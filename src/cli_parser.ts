@@ -29,8 +29,7 @@ const OPTIONS = {
     'shard',
     'changed',
     'agentFile',
-    'indexFile',
-    'dependencyFile',
+    'cacheDir',
   ],
   boolean: [
     'help',
@@ -41,10 +40,8 @@ const OPTIONS = {
     'allowKnownFailures',
     'updateBaseline',
     'reporterAgent',
-    'prepare',
     'prepareCaches',
     'failedNew',
-    'agentAll',
   ],
   alias: {
     forceExit: 'force-exit',
@@ -55,11 +52,9 @@ const OPTIONS = {
     updateBaseline: 'update-baseline',
     reporterAgent: 'agent',
     agentFile: 'agent-file',
-    indexFile: 'index-file',
-    dependencyFile: 'dependency-file',
+    cacheDir: 'cache-dir',
     prepareCaches: 'prepare-caches',
     failedNew: 'failed-new',
-    agentAll: 'agent-all',
     help: 'h',
   },
 }
@@ -89,11 +84,9 @@ ${colors.green('--update-baseline')}           ${colors.dim("Record this run's f
 ${colors.green('--agent')}                     ${colors.dim('Print machine-readable NDJSON results instead of a terminal report; setup/planning failures exit 2')}
 ${colors.green('--changed')}                   ${colors.dim('Run only files affected by the given changed paths, or "auto" for git changes')}
 ${colors.green('--failed-new')}                ${colors.dim('With --failed, skip failures already recorded in japa.baseline.json')}
-${colors.green('--prepare-caches')}            ${colors.dim('Build the selection and dependency caches without running tests (--prepare is an alias)')}
+${colors.green('--prepare-caches')}            ${colors.dim('Build the selection and dependency caches without running tests')}
 ${colors.green('--agent-file')}                ${colors.dim('Write agent JSON lines to a file instead of stdout')}
-${colors.green('--agent-all')}                 ${colors.dim('With the agent reporter, emit passing tests too')}
-${colors.green('--index-file')}                ${colors.dim('Path to the selection index cache (default under node_modules/.cache/japa)')}
-${colors.green('--dependency-file')}           ${colors.dim('Path to the dependency map cache (default under node_modules/.cache/japa)')}
+${colors.green('--cache-dir')}                  ${colors.dim('Directory for the selection and dependency caches (default node_modules/.cache/japa)')}
 ${colors.green('-h, --help')}                  ${colors.dim('View help')}
 
 ${colors.yellow('Examples:')}

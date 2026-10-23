@@ -50,7 +50,7 @@ async function runVariant(name, env) {
     ],
     {
       cwd: web,
-      env: { ...process.env, NO_COLOR: '1', ...env },
+      env: { ...process.env, NO_COLOR: '1', JAPA_AGENT_ALL: '1', ...env },
       stdio: ['ignore', 'ignore', 'inherit'],
     }
   )

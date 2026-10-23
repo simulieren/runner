@@ -76,7 +76,7 @@ npm pack --workspaces=false --ignore-scripts --pack-destination .benchmarks
 
 ## Task A1 — Committed cache files (start here)
 
-**Why.** A fresh checkout pays ~9 s of `--prepare` before the first fast run.
+**Why.** A fresh checkout pays ~9 s of `--prepare-caches` before the first fast run.
 Allowing the index and dependency map to live in a tracked path lets CI or a
 pre-commit hook ship them, so agents start fast immediately.
 
@@ -89,8 +89,8 @@ pre-commit hook ship them, so agents start fast immediately.
 **Steps.**
 
 1. Add CLI string flags in `src/cli_parser.ts`:
-   - `--index-file` → `indexFile`
-   - `--dependency-file` → `dependencyFile`
+   - `--cache-dir` → one directory for both caches
+   - 
    Add them to `string`, `alias`, help text, and `CLIArgs` in `src/types.ts`.
 2. Thread the values from `run()`:
    - `selectionIndex({ file: cliArgs.indexFile })`
@@ -102,10 +102,10 @@ pre-commit hook ship them, so agents start fast immediately.
    `writeHistory`, and the dependency writer).
 4. Document in `AGENT_INTEGRATION.md`:
    ```sh
-   npx japa --prepare --index-file=.japa/index.json --dependency-file=.japa/deps.json
+   npx japa --prepare-caches --cache-dir=.japa
    git add .japa
    # later
-   npx japa --tests="..." --index-file=.japa/index.json --dependency-file=.japa/deps.json
+   npx japa --tests="..." --cache-dir=.japa
    ```
    Note that both files are ordinary JSON, contain relative paths, and are safe
    to commit; they are caches, not test data.
@@ -117,12 +117,11 @@ pre-commit hook ship them, so agents start fast immediately.
 **Test.** Extend `tests/runner.spec.ts` (selection-index area):
 
 1. Create a fixture, write six files.
-2. Run `--prepare --index-file=.japa/index.json --dependency-file=.japa/deps.json`.
+2. Run `--prepare-caches --cache-dir=.japa`.
 3. Assert both files exist and `node_modules/.cache/japa` does **not** contain
    `index-*` or `dependencies-*`.
 4. Remove `node_modules/.cache/japa` entirely.
-5. Run `--tests="case 3" --index-file=.japa/index.json --dependency-file=.japa/deps.json`
-   with `--agent --agent-all --agent-file=...`.
+5. Run `--tests="case 3" --cache-dir=.japa` with `--agent --agent-file=...`.
 6. Assert exactly one test ran and `selection.skipped > 0`.
 
 **Acceptance.** The filtered run above still prunes files after the default
@@ -143,7 +142,7 @@ cache directory is deleted, using only the tracked files.
    NODE_COMPILE_CACHE: join(cwd, 'node_modules/.cache/node-compile'),
    ```
    and in `worker.mjs`/`boot_sample.sh` for focused probes.
-2. Run `--prepare` five times cold and five times warm; record
+2. Run `--prepare-caches` five times cold and five times warm; record
    `bootstrap-loaded` and wall time. Keep raw output under `.benchmarks/`.
 3. Add a short note to `AGENT_INTEGRATION.md`: compile cache is safe to enable,
    directory can be deleted, measured effect ~0.2 s/worker.
@@ -220,7 +219,7 @@ which:
 
 1. Spawns the copied app for worker 1 with `--cpu-prof` and `--cpu-prof-dir`
    under `.benchmarks/`, using the same env as `worker_env.mjs`, with
-   `--prepare` so no tests run.
+   `--prepare-caches` so no tests run.
 2. Parses the `.cpuprofile` JSON:
    - aggregate **self time** (`timeDeltas` aligned with `samples`) by URL prefix;
    - bucket into `node:@node`, `node_modules/@adonisjs`, `app/providers`,
@@ -256,7 +255,7 @@ save 1–2 s per worker.
    it; if not, try deferring it in the **copied** app only:
    - AdonisJS supports lazy provider imports in recent versions; if not, guard
      its registration behind an env flag for the experiment.
-2. Measure `--prepare` wall time and `bootstrap-loaded` five times with and
+2. Measure `--prepare-caches` wall time and `bootstrap-loaded` five times with and
    without the change, same DB template, sequential runs.
 3. Run a focused slice that exercises the provider (if any) and then one full
    six-worker run; require all 8,515 identities and no added failures.
@@ -281,7 +280,7 @@ with asynchronous hooks may reduce it without touching app code.
 
 1. In the copied app only, install `tsx` (or another ESM loader with async hooks)
    as a dev dependency. Do not touch the original checkout.
-2. Run the boot probe (`--prepare`, no tests) five times with:
+2. Run the boot probe (`--prepare-caches`, no tests) five times with:
    - `--import=@poppinss/ts-exec` (control),
    - `--import=tsx`,
    - Node `NODE_COMPILE_CACHE` plus each loader.
@@ -381,11 +380,11 @@ contract.
      const args = ['--import=@poppinss/ts-exec', 'bin/test.ts', ...this.parsed.args]
      spawn('npx', ['japa-agent', '--', command, ...args], { stdio: 'inherit' })
      ```
-   - supports `--changed`, `--prepare`, `--full`, `--workers=auto`, and passes
+   - supports `--changed`, `--prepare-caches`, `--full`, `--workers=auto`, and passes
      unknown args through.
    - returns the child's exit code.
 2. Add a section to `AGENT_INTEGRATION.md` showing the command, including
-   `node ace test --changed` and `node ace test --prepare`.
+   `node ace test --changed` and `node ace test --prepare-caches`.
 3. Do not add an Ace dependency to `@japa/runner`. The example is illustrative and
    must compile with the app's own `@adonisjs/core` version.
 
@@ -456,7 +455,7 @@ came from a loaded host, label it load-affected.
 
 | Task | State | Where |
 | --- | --- | --- |
-| A1 committed caches | Done | `--index-file`, `--dependency-file`; test deletes the default cache and still prunes |
+| A1 committed caches | Done | `--cache-dir`; test deletes the default cache and still prunes |
 | A2 compile cache | Measured, documented | ~0.2 s/worker; see `AGENT_INTEGRATION.md` |
 | A3 delta reporting | Done | `src/agent_delta.ts`, `<report>.delta.json`, 5 probes |
 | B1 boot attribution | Done | `benchmarks/ats-validation/probes/boot_breakdown.mjs` |

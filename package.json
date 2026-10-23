@@ -30,7 +30,7 @@
     "typecheck": "tsc --noEmit && npm run typecheck --workspace=@japa/adonis",
     "clean": "del-cli build",
     "precompile": "npm run lint && npm run clean",
-    "compile": "npm run build:core && tsdown && tsc --emitDeclarationOnly --declaration",
+    "compile": "npm run build:core && npm run build:adonis && tsdown && tsc --emitDeclarationOnly --declaration",
     "build": "npm run compile",
     "version": "npm run build",
     "prepublishOnly": "npm run build",
@@ -51,7 +51,8 @@
     "bench:agent-delta": "node --import=@poppinss/ts-exec benchmarks/agent_delta.mjs",
     "bench:baseline": "node --import=@poppinss/ts-exec benchmarks/baseline.mjs",
     "bench:cache-lock": "node --import=@poppinss/ts-exec benchmarks/cache_lock.mjs",
-    "bench:lab": "node benchmarks/lab_runner.mjs"
+    "bench:lab": "node benchmarks/lab_runner.mjs",
+    "build:adonis": "npm run build --workspace=@japa/adonis"
   },
   "devDependencies": {
     "@adonisjs/eslint-config": "^3.0.0-next.9",

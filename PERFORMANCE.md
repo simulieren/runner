@@ -47,7 +47,7 @@ both the wall time and the output it has to read. Four optional features target
 that loop. All are best-effort and all fall back to the previous behaviour rather
 than changing which tests run.
 
-### Prepare caches (`--prepare-caches`, alias `--prepare`)
+### Prepare caches (`--prepare-caches`)
 
 Imports every file, writes the selection index and the dependency map, and exits
 without running a test. It is the cheap way to prime a fresh checkout; the two
@@ -101,7 +101,7 @@ status, file, group, title, duration and bounded errors, plus a final
 pathological stack cannot flood the reader.
 
 `--agent` emits failing, skipped and todo tests only, because a large suite would
-otherwise produce thousands of passing lines. Use `--agent-all` or
+otherwise produce thousands of passing lines. Set `JAPA_AGENT_ALL=1` or use
 `agent({ onlyFailures: false })` from `@japa/runner/reporters` for the full
 stream. `--agent-file=path` writes the same lines to a file, so application output
 on stdout cannot corrupt the stream. Under the agent reporter, setup and planning
@@ -271,8 +271,8 @@ The two tarballs are `japa-core-10.4.0-speed.2.tgz` and
 project when ready. The runner depends on the unpublished core prerelease;
 installing the runner tarball alone cannot resolve that version from npm.
 
-`--index-file` and `--dependency-file` let both caches live in a tracked path, so
-a fresh checkout can start with them. Cache files use one naming convention:
+`--cache-dir` lets both caches live in a tracked path, so a fresh checkout can
+start with them. Cache files use one naming convention:
 `index-<hash>.json`, `durations-<hash>.json` and `dependencies-<hash>.json`. `japa-agent` also writes a delta report
 beside the agent stream. See [the harness guide](AGENT_INTEGRATION.md).
 

@@ -16,12 +16,12 @@ test.describe('Adonis worker resources', () => {
     const first = workerResources(1)
     const second = workerResources(2)
 
-    assert.equal(first.database, 'japa_speed_worker1')
-    assert.equal(second.database, 'japa_speed_worker2')
+    assert.equal(first.database, 'japa_test_1')
+    assert.equal(second.database, 'japa_test_2')
     assert.equal(first.redisPort, 26381)
     assert.equal(second.redisPort, 26382)
     assert.equal(first.searchUrl, 'http://127.0.0.1:28181')
-    assert.equal(first.searchPrefix, 'japa_speed_validation_1')
+    assert.equal(first.searchPrefix, 'japa_validation_1')
     assert.equal(first.httpPort, 24331)
     assert.equal(first.appUrl, 'http://127.0.0.1:24331')
     assert.equal(first.smtpPort, 21025)
@@ -57,10 +57,10 @@ test.describe('Adonis worker resources', () => {
     const env: NodeJS.ProcessEnv = {}
     Object.assign(env, workerEnv(workerResources(4)))
 
-    assert.equal(env.DB_DATABASE, 'japa_speed_worker4')
+    assert.equal(env.DB_DATABASE, 'japa_test_4')
     assert.equal(env.REDIS_PORT, '26384')
     assert.equal(env.TYPESENSE_NODE_URL, 'http://127.0.0.1:28184')
-    assert.equal(env.TYPESENSE_COLLECTION_PREFIX, 'japa_speed_validation_4')
+    assert.equal(env.TYPESENSE_COLLECTION_PREFIX, 'japa_validation_4')
     assert.equal(env.PORT, '24334')
     assert.equal(env.APP_URL, 'http://127.0.0.1:24334')
     assert.equal(env.SMTP_PORT, '21028')

@@ -32,16 +32,12 @@ export type AgentContext = {
   }
 }
 
-let current: AgentContext = {}
+const contexts = new WeakMap<object, AgentContext>()
 
-export function setAgentContext(patch: AgentContext) {
-  current = { ...current, ...patch }
+export function setAgentContext(runner: object, patch: AgentContext) {
+  contexts.set(runner, { ...(contexts.get(runner) ?? {}), ...patch })
 }
 
-export function getAgentContext(): AgentContext {
-  return current
-}
-
-export function resetAgentContext() {
-  current = {}
+export function getAgentContext(runner: object): AgentContext {
+  return contexts.get(runner) ?? {}
 }

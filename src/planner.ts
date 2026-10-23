@@ -11,6 +11,7 @@ import { relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import validator from './validator.js'
 import { FilesManager } from './files_manager.js'
+import { getSelectionPlan, setSelectionStats } from './planning_state.js'
 import type { NamedReporterContract, NormalizedConfig, TestFiles, TestSuite } from './types.js'
 
 /**
@@ -63,7 +64,7 @@ export class Planner {
    * always kept: a file added since the last indexed run must never be dropped.
    */
   #applySelectionIndex(filesURLs: URL[]) {
-    const selection = this.#config.selectionIndex
+    const selection = getSelectionPlan(this.#config)
     if (!selection) return filesURLs
     const only = selection.only ? new Set<string>(selection.only) : undefined
     const scope = new Set<string>(selection.skipWithin ?? [])
@@ -178,10 +179,10 @@ export class Planner {
     }
 
     this.#applyShard(suites)
-    this.#config.selectionStats = {
+    setSelectionStats(this.#config, {
       collected: this.#collected,
       planned: suites.reduce((total, suite) => total + suite.filesURLs.length, 0),
-    }
+    })
     return suites
   }
 

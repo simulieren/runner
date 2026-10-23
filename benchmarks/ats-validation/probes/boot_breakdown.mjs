@@ -106,7 +106,7 @@ const child = spawn(
     '--import=@poppinss/ts-exec',
     'bin/test.ts',
     'unit',
-    '--prepare',
+    '--prepare-caches',
   ],
   {
     cwd: web,

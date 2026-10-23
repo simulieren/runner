@@ -26,7 +26,7 @@ const MAX_MESSAGE_LINES = 6
 const MAX_STACK_LINES = 4
 
 export type AgentReporterOptions = BaseReporterOptions & {
-  /** Emit only failing, skipped and todo tests, plus the summary. */
+  /** Emit only failing, skipped and todo tests, plus the summary. Defaults to true. */
   onlyFailures?: boolean
   /** Collapse repeated identical errors and omit their stacks after the first. */
   compact?: boolean
@@ -81,7 +81,7 @@ export class AgentReporter extends BaseReporter {
 
   constructor(options: AgentReporterOptions = {}) {
     super(options)
-    this.#onlyFailures = options.onlyFailures ?? false
+    this.#onlyFailures = options.onlyFailures ?? true
     this.#compact = options.compact ?? false
     this.#file = options.file
   }
@@ -172,7 +172,7 @@ export class AgentReporter extends BaseReporter {
 
   protected async end() {
     const summary = this.runner!.getSummary()
-    const context = getAgentContext()
+    const context = getAgentContext(this.runner!)
     const repeats = [...this.#seen.entries()].filter(([, count]) => count > 1)
 
     this.#emit({

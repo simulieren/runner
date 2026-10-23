@@ -55,13 +55,10 @@ export type CLIArgs = {
   updateBaseline?: boolean
   reporterAgent?: boolean
   changed?: string
-  prepare?: boolean
   prepareCaches?: boolean
   failedNew?: boolean
   agentFile?: string
-  agentAll?: boolean
-  indexFile?: string
-  dependencyFile?: string
+  cacheDir?: string
   bail?: boolean
   bailLayer?: string
   shard?: string
@@ -108,15 +105,6 @@ export type BaseConfig = {
 
   /** Capture declaration stacks for timeout/pinned-test diagnostics. Defaults to true. */
   captureTestLocations?: boolean
-
-  /**
-   * Internal: files the selection index has proven can match the active
-   * filters, plus those filters. Set by the selectionIndex plugin.
-   */
-  selectionIndex?: SelectionIndexSelection
-
-  /** Filled by the planner: how many files were collected and how many remain. */
-  selectionStats?: { collected: number; planned: number }
 
   /** File duration estimates in milliseconds; enables balanced sharding when nonempty. */
   shardDurations?: Record<string, number>
@@ -235,28 +223,7 @@ export type TestSuite = {
 /**
  * BaseConfig after normalized by the config manager
  */
-/** Connector between the selection-index plugin and the planner. */
-export type SelectionIndexSelection = {
-  /**
-   * When set, only these relative paths may be imported. Used by `--changed`,
-   * where the dependency map names the complete answer.
-   */
-  only?: readonly string[]
-  /**
-   * Relative paths the index has an answer for. Paths outside this set are
-   * always kept, so a file added since the last indexed run is never dropped.
-   */
-  skipWithin?: readonly string[]
-  /** Relative paths proven unable to match the active filters. */
-  skip?: readonly string[]
-}
-
-export type NormalizedBaseConfig = Required<
-  Omit<BaseConfig, 'reporters' | 'selectionIndex' | 'selectionStats'>
-> & {
-  selectionIndex?: SelectionIndexSelection
-  /** Filled by the planner: how many files were collected and how many remain. */
-  selectionStats?: { collected: number; planned: number }
+export type NormalizedBaseConfig = Required<Omit<BaseConfig, 'reporters'>> & {
   reporters: {
     activated: string[]
     list: NamedReporterContract[]

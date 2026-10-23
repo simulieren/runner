@@ -16,7 +16,7 @@ import { Planner } from './src/planner.js'
 import { GlobalHooks } from './src/hooks.js'
 import { CliParser } from './src/cli_parser.js'
 import { agent as agentReporter } from './src/reporters/main.js'
-import { dateTimeDoubles, printPinnedTests } from './src/helpers.js'
+import { dateTimeDoubles, printPinnedTests, warn } from './src/helpers.js'
 import { retryPlugin } from './src/plugins/retry.js'
 import { ConfigManager } from './src/config_manager.js'
 import { ExceptionsManager } from './src/exceptions_manager.js'
@@ -186,7 +186,7 @@ export function configure(options: Config) {
           : [
               ...(configured.list ?? []),
               agentReporter({
-                onlyFailures: !cliArgs.agentAll,
+                onlyFailures: process.env.JAPA_AGENT_ALL !== '1',
                 compact: true,
                 file: cliArgs.agentFile,
               }),
@@ -250,7 +250,7 @@ export async function run() {
      */
     if (!process.env.JAPA_SPEED_RUN_ID) {
       const { changedSelection, recordDependencies } = await import('./src/dependencies.js')
-      const dependencyOptions = { file: cliArgs.dependencyFile }
+      const dependencyOptions = { dir: cliArgs.cacheDir }
       await changedSelection(dependencyOptions)({ config: runnerConfig!, runner, emitter, cliArgs })
       await recordDependencies(dependencyOptions)({
         config: runnerConfig!,
@@ -264,7 +264,7 @@ export async function run() {
       const { selectionIndex } = await import('./src/selection_index.js')
       // `--changed` already set the selection; do not let the title index widen it.
       if (!cliArgs.changed) {
-        await selectionIndex({ file: cliArgs.indexFile })({
+        await selectionIndex({ dir: cliArgs.cacheDir })({
           config: runnerConfig!,
           runner,
           emitter,
@@ -301,8 +301,9 @@ export async function run() {
 
     if (cliArgs.reporterAgent || cliArgs.agentFile) {
       const { setAgentContext } = await import('./src/reporters/context.js')
-      const stats = runnerConfig!.selectionStats
-      setAgentContext({
+      const { getSelectionStats } = await import('./src/planning_state.js')
+      const stats = getSelectionStats(runnerConfig!)
+      setAgentContext(runner, {
         selection: {
           mode: cliArgs.changed
             ? 'changed'
@@ -350,7 +351,7 @@ export async function run() {
      */
     // Preparing caches only needs imports. Skipping app setup keeps it cheap and
     // avoids touching databases that the caller did not reset.
-    const preparing = Boolean(cliArgs.prepare || cliArgs.prepareCaches)
+    const preparing = Boolean(cliArgs.prepareCaches)
     if (!cliArgs.listPinned && !preparing) {
       await globalHooks.setup(runner)
     }
@@ -400,8 +401,10 @@ export async function run() {
      * imported, so even a filtered run keeps its entries complete.
      */
     if (!process.env.JAPA_NO_SELECTION_INDEX) {
-      const { writeSelectionIndexFor } = await import('./src/selection_index.js')
-      await writeSelectionIndexFor(runner as never, runnerConfig!.cwd, { file: cliArgs.indexFile })
+      const { writeSelectionIndex } = await import('./src/selection_index.js')
+      await writeSelectionIndex(runner, runnerConfig!.cwd, { dir: cliArgs.cacheDir }).catch(
+        (error) => console.error(`Unable to update the selection index: ${String(error)}`)
+      )
     }
 
     /**
@@ -409,9 +412,9 @@ export async function run() {
      * running a single test. It exists so an agent entering a repository pays the
      * import cost once instead of a full suite run.
      */
-    if (cliArgs.prepare || cliArgs.prepareCaches) {
+    if (cliArgs.prepareCaches) {
       const { flushDependencies } = await import('./src/dependencies.js')
-      await flushDependencies()
+      await flushDependencies(emitter)
       const summary = { event: 'prepare', prepared: true }
       console.log(cliArgs.reporterAgent ? JSON.stringify(summary) : 'Prepared selection caches')
       return
@@ -432,8 +435,8 @@ export async function run() {
     if (cliArgs.reporterAgent || cliArgs.agentFile) {
       const { setAgentContext } = await import('./src/reporters/context.js')
       const { getAgentContext } = await import('./src/reporters/context.js')
-      const phases = getAgentContext().phases ?? { bootMs: 0, importMs: 0, testMs: 0 }
-      setAgentContext({
+      const phases = getAgentContext(runner).phases ?? { bootMs: 0, importMs: 0, testMs: 0 }
+      setAgentContext(runner, {
         phases: { ...phases, importMs: Math.round(performance.now() - plannedAt) },
       })
     }
@@ -466,8 +469,8 @@ export async function run() {
 
     if (cliArgs.reporterAgent || cliArgs.agentFile) {
       const { setAgentContext, getAgentContext } = await import('./src/reporters/context.js')
-      const phases = getAgentContext().phases ?? { bootMs: 0, importMs: 0, testMs: 0 }
-      setAgentContext({
+      const phases = getAgentContext(runner).phases ?? { bootMs: 0, importMs: 0, testMs: 0 }
+      setAgentContext(runner, {
         phases: { ...phases, testMs: Math.round(performance.now() - execStartedAt) },
       })
     }
@@ -501,14 +504,14 @@ export async function run() {
       if (cliArgs.updateBaseline && isFullRun) {
         const update = await updateBaseline(file, runFailures.failures)
         if (update.added.length && update.removed.length) {
-          console.warn(
+          warn(
             `Baseline changed in both directions (${update.added.length} added, ` +
               `${update.removed.length} no longer failing). Rerun on a quiet machine ` +
               'if that was unexpected.'
           )
         }
       } else if (cliArgs.updateBaseline && !process.env.JAPA_SPEED_RUN_ID) {
-        console.warn(
+        warn(
           'Baseline not updated: --update-baseline requires a full run ' +
             '(no test, file, group, tag, changed or failed filter and no shard).'
         )
@@ -518,14 +521,14 @@ export async function run() {
         const { new: fresh, known, fixed } = diffFailures(baseline, runFailures.failures)
         onlyKnownFailures = fresh.length === 0
         if (fixed.length && !cliArgs.reporterAgent && !cliArgs.agentFile) {
-          console.warn(
+          warn(
             `${fixed.length} baseline ${fixed.length === 1 ? 'entry' : 'entries'} did not fail; ` +
               'remove them with --update-baseline when convenient.'
           )
         }
         if (cliArgs.reporterAgent || cliArgs.agentFile) {
           const { setAgentContext } = await import('./src/reporters/context.js')
-          setAgentContext({
+          setAgentContext(runner, {
             baseline: { known: known.length, new: fresh.length, fixed: fixed.length },
           })
         }

@@ -18,7 +18,7 @@ const TIMEOUT_MS = 5_000
 /** Exclusive lock for a cache read-modify-write sequence. */
 export async function withCacheLock<T>(
   file: string,
-  run: () => Promise<T>,
+  callback: () => Promise<T>,
   options: { timeoutMs?: number; staleMs?: number } = {}
 ): Promise<T> {
   const lock = `${file}.lock`
@@ -27,11 +27,11 @@ export async function withCacheLock<T>(
   const started = Date.now()
 
   await mkdir(dirname(lock), { recursive: true })
-  for (;;) {
+  while (true) {
     try {
       const handle = await open(lock, 'wx')
       try {
-        return await run()
+        return await callback()
       } finally {
         await handle.close()
         await rm(lock, { force: true }).catch(() => {})

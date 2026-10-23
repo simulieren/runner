@@ -7,11 +7,12 @@
  * file that was distributed with this source code.
  */
 
-import { createHash } from 'node:crypto'
 import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { dirname, join, relative } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import debug from './debug.js'
 import { withCacheLock } from './cache_lock.js'
+import { setSelectionPlan } from './planning_state.js'
+import { indexFile } from './cache_paths.js'
 import type { PluginFn } from './types.js'
 
 /**
@@ -35,13 +36,6 @@ export type IndexedFile = {
 export type SelectionIndex = {
   version: 1
   files: Record<string, IndexedFile>
-}
-
-/** Suite-qualified key, matching the duration-history cache convention. */
-export function indexFile(cwd: string, file?: string) {
-  if (file) return join(cwd, file)
-  const id = createHash('sha256').update(cwd).digest('hex').slice(0, 16)
-  return join(cwd, 'node_modules', '.cache', 'japa', `index-${id}.json`)
 }
 
 export function emptyIndex(): SelectionIndex {
@@ -136,7 +130,7 @@ export async function isFresh(cwd: string, path: string, entry: IndexedFile) {
  * one test by name still imports every file in the suite. The index is optional
  * and best-effort: a stale, missing or unreadable index keeps every file.
  */
-export function selectionIndex(options: { file?: string } = {}): PluginFn {
+export function selectionIndex(options: { file?: string; dir?: string } = {}): PluginFn {
   return async ({ config, cliArgs }) => {
     if (cliArgs.listPinned) return
     const filters = {
@@ -147,7 +141,9 @@ export function selectionIndex(options: { file?: string } = {}): PluginFn {
     if (!filters.tests && !filters.groups && !filters.tags) return
 
     const cwd = await realpath(config.cwd)
-    const index = await readIndex(indexFile(cwd, options.file))
+    const index = await readIndex(
+      options.file ? resolve(cwd, options.file) : indexFile(cwd, options.dir)
+    )
     const paths = Object.keys(index.files)
     if (!paths.length) return
 
@@ -162,7 +158,7 @@ export function selectionIndex(options: { file?: string } = {}): PluginFn {
     // The planner prunes with this before importing. Files without a fresh
     // entry are neither listed as seen nor skipped, so they are always imported.
     const skip = keep.filter((path) => shouldSkipFile(index.files[path], filters))
-    config.selectionIndex = Object.freeze({
+    setSelectionPlan(config, {
       skipWithin: Object.freeze(keep),
       skip: Object.freeze(skip),
     })
@@ -194,13 +190,9 @@ async function hasRuntimeTitles(path: string, entry: IndexedFile) {
 }
 
 /**
- * Walk the registered suites and record every test per file.
- *
- * Registration, not execution, is what makes this cheap and correct: importing a
- * file registers all of its tests regardless of the active filter, so an entry
- * written from a filtered run is still complete for every file that run
- * imported. Files the index skipped are not registered and keep their previous
- * entries.
+ * Record every registered test per file. Importing registers all tests whatever
+ * the filter is, so a filtered run still writes complete entries for the files it
+ * imported; skipped files keep their previous entries.
  */
 async function collectIndex(
   runner: { suites: Array<{ name: string; stack: Array<unknown> }> },
@@ -258,12 +250,12 @@ async function collectIndex(
  * Write the index from what was imported. Called after the import phase, whether
  * or not tests will run, so `--prepare` can build it without executing anything.
  */
-export async function writeSelectionIndexFor(
+export async function writeSelectionIndex(
   runner: { suites: Array<{ name: string; stack: Array<unknown> }> },
   cwd: string,
-  options: { file?: string } = {}
+  options: { file?: string; dir?: string } = {}
 ) {
-  const target = indexFile(cwd, options.file)
+  const target = options.file ? resolve(cwd, options.file) : indexFile(cwd, options.dir)
   return withCacheLock(target, async () => {
     const index = await readIndex(target)
     const count = await collectIndex(runner, cwd, index)

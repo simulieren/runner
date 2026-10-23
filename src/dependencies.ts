@@ -8,15 +8,16 @@
  */
 
 import { execFile } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import * as nodeModule from 'node:module'
 import { promisify } from 'node:util'
 import { pathToFileURL } from 'node:url'
 import { join, relative, resolve } from 'node:path'
+import { dependencyFile } from './cache_paths.js'
 import { fileURLToPath } from 'node:url'
 import debug from './debug.js'
 import { withCacheLock } from './cache_lock.js'
+import { setSelectionPlan } from './planning_state.js'
 import type { PluginFn } from './types.js'
 
 /**
@@ -29,11 +30,11 @@ export type DependencyMap = {
   files: Record<string, string[]>
 }
 
-/** Set while a run is recording; `--prepare` flushes without waiting for the end. */
-let activeWriter: (() => Promise<void>) | undefined
+/** Per-run writers, so two runs in one process cannot clobber each other. */
+const writers = new WeakMap<object, () => Promise<void>>()
 
-export async function flushDependencies() {
-  await activeWriter?.()
+export async function flushDependencies(emitter: object) {
+  await writers.get(emitter)?.()
 }
 
 /** Files that cannot be a test dependency worth rerunning for. */
@@ -68,13 +69,6 @@ export async function gitChangedPaths(cwd: string): Promise<string[]> {
     debug('unable to read changed paths from git: %O', error)
     return []
   }
-}
-
-export function dependencyFile(cwd: string, file?: string) {
-  // CLI flags default to an empty string, which must not resolve to the cwd.
-  if (file) return resolve(cwd, file)
-  const id = createHash('sha256').update(cwd).digest('hex').slice(0, 16)
-  return resolve(cwd, 'node_modules', '.cache', 'japa', `dependencies-${id}.json`)
 }
 
 export function parseDependencyMap(value: unknown): DependencyMap {
@@ -127,11 +121,8 @@ export function filesAffectedBy(map: DependencyMap, changed: string[]): string[]
   return [...matches]
 }
 
-/**
- * Record which source files each test file imported, so a later `--changed` run
- * can pick files without guessing.
- */
-export function recordDependencies(options: { file?: string } = {}): PluginFn {
+/** Record each test file's transitive imports for `--changed`. */
+export function recordDependencies(options: { file?: string; dir?: string } = {}): PluginFn {
   return async ({ config, emitter }) => {
     // Node 22.15+/23.5+ ship registerHooks. On older supported versions the
     // dependency map is simply unavailable; --changed then runs everything.
@@ -142,7 +133,7 @@ export function recordDependencies(options: { file?: string } = {}): PluginFn {
     }
 
     const cwd = config.cwd
-    const target = dependencyFile(cwd, options.file)
+    const target = options.file ? resolve(cwd, options.file) : dependencyFile(cwd, options.dir)
     const map = await readDependencyMap(target)
     const testFiles = new Set<string>()
     const edges = new Map<string, Set<string>>()
@@ -153,13 +144,8 @@ export function recordDependencies(options: { file?: string } = {}): PluginFn {
       set.add(child)
     }
 
-    /**
-     * ESM loads a shared module once, so attributing loads to whichever test file
-     * happened to import it first would miss every later importer. Record the
-     * resolution edge (importer -> imported) instead, then walk the graph from
-     * each test file. Resolve runs per parent URL, so shared modules keep every
-     * incoming edge even when the module itself is cached.
-     */
+    // Record importer -> imported edges, then walk from each test file. Load
+    // events alone would miss shared modules, which ESM loads only once.
     hooks.registerHooks({
       resolve(specifier, context, nextResolve) {
         const result = nextResolve(specifier, context)
@@ -221,7 +207,7 @@ export function recordDependencies(options: { file?: string } = {}): PluginFn {
           .catch(() => {})
       }
     }
-    activeWriter = write
+    writers.set(emitter, write)
 
     emitter.once('runner:end', (): boolean => {
       void write()
@@ -234,12 +220,14 @@ export function recordDependencies(options: { file?: string } = {}): PluginFn {
  * Narrow the run to files affected by `--changed` paths. Falls back to the full
  * suite whenever the dependency map cannot answer confidently.
  */
-export function changedSelection(options: { file?: string } = {}): PluginFn {
+export function changedSelection(options: { file?: string; dir?: string } = {}): PluginFn {
   return async ({ config, cliArgs }) => {
     const raw = cliArgs.changed
     if (!raw) return
     const cwd = config.cwd
-    const map = await readDependencyMap(dependencyFile(cwd, options.file))
+    const map = await readDependencyMap(
+      options.file ? resolve(cwd, options.file) : dependencyFile(cwd, options.dir)
+    )
     const changed =
       raw === 'auto'
         ? await gitChangedPaths(cwd)
@@ -255,6 +243,6 @@ export function changedSelection(options: { file?: string } = {}): PluginFn {
     // The map names the complete set of known test files, so restricting to the
     // affected ones is safe. A brand-new, unrecorded test file would be missed,
     // which is why the map is only used after a full recorded run.
-    config.selectionIndex = Object.freeze({ only: Object.freeze(affected) })
+    setSelectionPlan(config, { only: Object.freeze(affected) })
   }
 }

@@ -51,7 +51,7 @@ configure({
       estimates = config.shardDurations
       await writeFile(
         resolve(`started-${worker}.json`),
-        JSON.stringify({ estimates, pid: process.pid, startedAt: Date.now() })
+        JSON.stringify({ estimates, pid: process.pid })
       )
       if (process.env.TEST_TAMPER === '1') config.shardDurations = {}
     },

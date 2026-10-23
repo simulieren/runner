@@ -163,7 +163,7 @@ async function main() {
     // Build both caches once. Selection flags are stripped so the index covers
     // every file rather than only the ones a filter would have imported.
     const prepareStarted = performance.now()
-    const prepareArgs = [...args.filter((arg) => !SELECTION_FLAGS.test(arg)), '--prepare']
+    const prepareArgs = [...args.filter((arg) => !SELECTION_FLAGS.test(arg)), '--prepare-caches']
     const prepared = await run(executable, prepareArgs, cwd, options.timeout)
     prepareMs = Math.round(performance.now() - prepareStarted)
     if (prepared !== 0) {

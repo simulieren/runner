@@ -35,12 +35,6 @@ export type ParallelOptions = {
   workerEnv?: (worker: number, total: number) => NodeJS.ProcessEnv
   signal?: AbortSignal
   stdio?: 'inherit' | 'ignore'
-  /**
-   * Milliseconds between launching one worker and the next. Zero launches the
-   * whole pool at once; a small stagger stops every process from compiling and
-   * resolving its module graph at the same instant.
-   */
-  startStaggerMs?: number
   /** Merge worker failures and write the baseline from the coordinator. */
   updateBaseline?: boolean
 }
@@ -125,62 +119,61 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
     await writeHistory(snapshot, { ...history, runId, failedTests: failed.tests ?? [] })
     options.signal?.addEventListener('abort', abort, { once: true })
     if (options.signal?.aborted) abort()
-    const stagger = Math.max(
-      0,
-      options.startStaggerMs ?? Number(process.env.JAPA_START_STAGGER_MS ?? 0)
-    )
     const workers = await Promise.all(
-      Array.from({ length: count }, async (_, index) => {
-        const worker = index + 1
-        if (stagger && !aborted) {
-          await new Promise((done) => setTimeout(done, stagger * index))
-        }
-        if (aborted)
-          return {
-            worker,
-            exitCode: 130,
-            error: 'Cancelled',
-          } satisfies ParallelResult['workers'][number]
-        if (aborted)
-          return Promise.resolve<ParallelResult['workers'][number]>({
-            worker,
-            exitCode: 130,
-            error: 'Cancelled',
-          })
-        return new Promise<ParallelResult['workers'][number]>((done) => {
-          let child: ChildProcess
-          try {
-            child = spawn(
-              options.command,
-              [...(options.args ?? []), `--shard=${worker}/${count}`],
-              {
-                cwd,
-                detached: process.platform !== 'win32',
-                stdio: options.stdio ?? 'inherit',
-                env: {
-                  ...process.env,
-                  ...options.env,
-                  ...environments[index],
-                  JAPA_WORKER_ID: String(worker),
-                  JAPA_WORKER_COUNT: String(count),
-                  JAPA_SPEED_RUN_ID: runId,
-                  JAPA_SPEED_SNAPSHOT: snapshot,
-                  JAPA_SPEED_OUTPUT: join(directory, `${worker}.json`),
-                  ...(options.updateBaseline ? { JAPA_SPEED_COLLECT_FAILURES: '1' } : {}),
-                },
-              }
+      Array.from(
+        { length: count },
+        (
+          _,
+          index
+        ): ParallelResult['workers'][number] | Promise<ParallelResult['workers'][number]> => {
+          const worker = index + 1
+          if (aborted)
+            return {
+              worker,
+              exitCode: 130,
+              error: 'Cancelled',
+            } satisfies ParallelResult['workers'][number]
+          if (aborted)
+            return Promise.resolve<ParallelResult['workers'][number]>({
+              worker,
+              exitCode: 130,
+              error: 'Cancelled',
+            })
+          return new Promise<ParallelResult['workers'][number]>((done) => {
+            let child: ChildProcess
+            try {
+              child = spawn(
+                options.command,
+                [...(options.args ?? []), `--shard=${worker}/${count}`],
+                {
+                  cwd,
+                  detached: process.platform !== 'win32',
+                  stdio: options.stdio ?? 'inherit',
+                  env: {
+                    ...process.env,
+                    ...options.env,
+                    ...environments[index],
+                    JAPA_WORKER_ID: String(worker),
+                    JAPA_WORKER_COUNT: String(count),
+                    JAPA_SPEED_RUN_ID: runId,
+                    JAPA_SPEED_SNAPSHOT: snapshot,
+                    JAPA_SPEED_OUTPUT: join(directory, `${worker}.json`),
+                    ...(options.updateBaseline ? { JAPA_SPEED_COLLECT_FAILURES: '1' } : {}),
+                  },
+                }
+              )
+              children.push(child)
+            } catch (error) {
+              done({ worker, exitCode: 1, error: String(error) })
+              return
+            }
+            child.once('error', (error) => done({ worker, exitCode: 1, error: error.message }))
+            child.once('close', (code, signal) =>
+              done({ worker, exitCode: code ?? 1, ...(signal ? { signal } : {}) })
             )
-            children.push(child)
-          } catch (error) {
-            done({ worker, exitCode: 1, error: String(error) })
-            return
-          }
-          child.once('error', (error) => done({ worker, exitCode: 1, error: error.message }))
-          child.once('close', (code, signal) =>
-            done({ worker, exitCode: code ?? 1, ...(signal ? { signal } : {}) })
-          )
-        })
-      })
+          })
+        }
+      )
     )
     if (escalation) await escalation
     let exitCode = aborted ? 130 : (workers.find((worker) => worker.exitCode !== 0)?.exitCode ?? 0)

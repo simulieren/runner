@@ -22,7 +22,7 @@ npx japa-agent --cwd=apps/web --out=/tmp/japa.jsonl -- node bin/test.js unit
 
 Behavior:
 
-1. If the selection caches are missing, run the command once with `--prepare`
+1. If the selection caches are missing, run the command once with `--prepare-caches`
    (selection flags stripped) and stop if it fails.
 2. Run the command with `--agent --agent-file=<out>` and, unless the forwarded
    arguments already contain a selection or `--full` is passed, `--changed=auto`.
@@ -40,7 +40,7 @@ wrapper will not add `--changed=auto`.
 
 ```sh
 # once per checkout: build the selection and dependency caches without running tests
-npx japa --prepare
+npx japa --prepare-caches
 
 # after an edit: run only files affected by the changed paths
 npx japa --changed=auto --agent
@@ -60,7 +60,7 @@ a targeted cold run.
 
 | Flag | Effect |
 | --- | --- |
-| `--prepare-caches` (alias `--prepare`) | Import every file, write the selection index and dependency map, run no tests and skip application setup hooks. Cheapest way to prime a fresh checkout. |
+| `--prepare-caches` | Import every file, write the selection index and dependency map, run no tests and skip application setup hooks. Cheapest way to prime a fresh checkout. |
 | `--tests` / `--groups` / `--tags` | Filter as before, but files that cannot match are no longer imported. |
 | `--changed=auto` | Use `git diff --name-only HEAD` plus untracked files. |
 | `--changed=a.ts,b.ts` | Explicit paths, relative to the app directory. |
@@ -70,7 +70,6 @@ a targeted cold run.
 | `--update-baseline` | Rewrite `japa.baseline.json` from this run, awaited before exit. Only a full run writes: any test/file/group/tag/changed/failed filter or a shard leaves the file unchanged. |
 | `--agent` | Replace reporters with bounded JSON lines on stdout. |
 | `--agent-file=path` | Write that JSON to a file, keeping application stdout separate. |
-| `--agent-all` | With the agent reporter, emit passing tests too (useful for identity diffs). |
 
 ## Tracked caches
 
@@ -79,11 +78,11 @@ path instead, so CI or a pre-commit hook ships them and a fresh checkout starts
 fast:
 
 ```sh
-npx japa --prepare --index-file=.japa/index.json --dependency-file=.japa/deps.json
-npx japa --tests="..." --index-file=.japa/index.json --dependency-file=.japa/deps.json
+npx japa --prepare-caches --cache-dir=.japa
+npx japa --tests="..." --cache-dir=.japa
 ```
 
-Both are ordinary JSON with relative paths and are safe to commit.
+Both are ordinary JSON inside that directory and are safe to commit.
 
 ## Faster boot
 
@@ -202,7 +201,7 @@ The selection features are built to run too much rather than too little:
 - `--changed` falls back to the whole suite if any changed path is unknown.
 - `--failed-new` matches by title only, so it is opt-in; a title that is both
   known-failing and newly failing elsewhere cannot be distinguished.
-- `--prepare` and normal runs only write cache entries from files they imported;
+- `--prepare-caches` and normal runs only write cache entries from files they imported;
   files skipped by the index keep their previous entries.
 
 Caches live under `node_modules/.cache/japa/` and are safe to delete.
@@ -220,7 +219,7 @@ application boots. Other selections use the previous default of
 
 ## Recommended harness policy
 
-1. Run `--prepare` once per checkout, not per edit.
+1. Run `--prepare-caches` once per checkout, not per edit.
 2. Prefer `--changed=auto` for edits; fall back to `--tests` for targeted debugging.
 3. Use `--agent-file` when tests log to stdout.
 4. Treat exit 2 as "do not retry"; exit 1 as "read the failures".

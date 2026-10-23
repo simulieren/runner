@@ -60,7 +60,7 @@ export function parseAgentReport(text: string): ParsedAgentReport {
     } catch {
       continue
     }
-    const kind = record.event ?? record.t
+    const kind = record.event
     if (kind === 'summary' && typeof record.total === 'number') {
       summary = {
         total: record.total,
