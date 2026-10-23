@@ -144,15 +144,12 @@ npx japa-agent --cwd=apps/web --report
 This is the number to optimise: invocations per task and edit-to-green time, not a
 single run. Use `--no-metrics` to opt out.
 
-## Measuring the lab
+## Benchmarks
 
-`node benchmarks/lab_runner.mjs --label=filtered --reps=3 --max-load=4 -- <command>`
-runs sequentially, samples load, and exits 3 with `LOAD-AFFECTED` when the machine
-exceeded the budget. It writes a JSON result with the median and every sample.
-
-The differential selection gate lives in
-`benchmarks/ats-validation/probes/selection_gate.mjs`: it runs a filter with and
-without the index and fails when the test identities or exit codes differ.
+The unit probes for the new behaviour are available as
+`npm run bench:selection-index`, `npm run bench:changed-selection`,
+`npm run bench:timing-cache`, `npm run bench:baseline`,
+`npm run bench:cache-lock` and `npm run bench:agent-delta`.
 
 ## Delta reports
 

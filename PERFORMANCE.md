@@ -1,17 +1,10 @@
 # Performance fork
 
-Follow-up: [ATS code experiments and the 46–48 s result](benchmarks/ATS_CODE_EXPERIMENTS.md).
-Latest: [sub-30 s experiments, 26.8–28.1 s with six workers](benchmarks/ATS_SUB30_EXPERIMENTS.md).
-
 Runner `5.4.0-speed.5` uses the checked-in core fork `10.4.0-speed.2` in
 `packages/core`. Both are local prereleases. speed.5 includes the timing-history
 change (failing runs train their passing files) and smoothed estimate updates.
 Default development and synthetic benchmark commands do not modify or run the
-target application. Separate isolated ATS validation is documented in the
-[ATS runbook](benchmarks/ATS_VALIDATION.md).
-
-For what was tried, what helped, and what was rejected or inconclusive, see the
-[experiment history](benchmarks/EXPERIMENTS.md).
+target application.
 
 ## Changes and defaults
 
@@ -191,7 +184,7 @@ inherited from workers and can interleave.
 
 Japa does not provision database, Redis, search, or HTTP-port isolation.
 `JAPA_WORKER_ID` and `JAPA_WORKER_COUNT` are supplied for application configuration.
-ATS has been validated in an isolated copy; see the [setup, findings, and retest runbook](benchmarks/ATS_VALIDATION.md). Installation into the original app remains deferred.
+Application integration and external resource isolation are intentionally deferred until requested.
 
 ## Optional training from ordinary serial runs
 
