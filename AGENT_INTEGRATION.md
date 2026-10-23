@@ -67,7 +67,7 @@ a targeted cold run.
 | `--failed` | Re-run tests that failed last time (unchanged). |
 | `--failed-new` | With `--failed`, skip titles already recorded in `japa.baseline.json`. |
 | `--allow-known-failures` | Exit 0 when the only failures match the baseline. |
-| `--update-baseline` | Rewrite `japa.baseline.json` from this run, awaited before exit. |
+| `--update-baseline` | Rewrite `japa.baseline.json` from this run, awaited before exit. Only a full run writes: any test/file/group/tag/changed/failed filter or a shard leaves the file unchanged. |
 | `--agent` | Replace reporters with bounded JSON lines on stdout. |
 | `--agent-file=path` | Write that JSON to a file, keeping application stdout separate. |
 | `--agent-all` | With the agent reporter, emit passing tests too (useful for identity diffs). |

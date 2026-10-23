@@ -1310,6 +1310,28 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.equal(lines.at(-1).selection.fallback, true)
   })
 
+  test('never write a baseline from a partial serial selection', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { readFile, writeFile } = await import('node:fs/promises')
+    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    const run = (args: string[]) =>
+      promisify(execFile)(process.execPath, [`--import=${loader}`, entry, ...args], {
+        cwd,
+        env: { ...process.env, TEST_FAIL: '1' },
+      }).catch(() => {})
+
+    await run(['--update-baseline'])
+    const full = JSON.parse(await readFile(`${cwd}/japa.baseline.json`, 'utf8'))
+    assert.equal(full.failures.length, 2)
+
+    // A title filter is a slice of the suite and must not replace the baseline.
+    await run(['--update-baseline', '--tests=case 0'])
+    const after = JSON.parse(await readFile(`${cwd}/japa.baseline.json`, 'utf8'))
+    assert.deepEqual(after, full)
+  })
+
   test('merge baseline failures once in the coordinator, not per worker', async (context) => {
     const { cwd, entry, loader } = await fixture(context)
     const { readFile } = await import('node:fs/promises')

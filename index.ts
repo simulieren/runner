@@ -466,9 +466,23 @@ export async function run() {
       const { readBaseline, diffFailures, writeBaseline, baselineFile } =
         await import('./src/failure_baseline.js')
       const file = baselineFile(runnerConfig!.cwd)
-      // Managed workers must not write: each sees one shard, so the last write
-      // would erase the others. The coordinator merges their reports instead.
-      if (cliArgs.updateBaseline && !process.env.JAPA_SPEED_RUN_ID) {
+      /**
+       * A baseline is the whole suite. Never write it from a partial selection:
+       * it would erase every failure outside the slice. Managed workers also
+       * never write; the coordinator merges all shards once.
+       */
+      const filters = runnerConfig!.filters
+      const isFullRun =
+        !process.env.JAPA_SPEED_RUN_ID &&
+        !cliArgs.listPinned &&
+        !cliArgs.failed &&
+        !cliArgs.changed &&
+        !filters.shard &&
+        !filters.tests?.length &&
+        !filters.groups?.length &&
+        !filters.tags?.length &&
+        !filters.files?.length
+      if (cliArgs.updateBaseline && isFullRun) {
         await writeBaseline(file, { version: 1, failures: runFailures.failures })
       }
       if (cliArgs.allowKnownFailures) {

@@ -558,3 +558,17 @@ difference tracks it.
 partial baseline, so the last writer won. Workers now only report their failures;
 the coordinator merges them and writes once, under the same validity gate as
 timing promotion. A partial selection never writes.
+
+### AdonisJS integration verification
+
+The copied app is AdonisJS **7.5.0** (`@adonisjs/core`), with 25+ providers already
+declared as lazy imports in `adonisrc.ts`, `Ignitor.testRunner()` in `bin/test.ts`,
+and `@japa/plugin-adonisjs 5.2.0`. Against that copy:
+
+- `japa-agent` from a production install ran `--prepare` and then a title filter:
+  exit 0, `planned: 4`, `skipped: 644`, 739 ms import phase, one test.
+- `--update-baseline` through the coordinator with six workers merged **23**
+  failures (the 19 baseline plus four load flakes) into one file.
+- The same six-worker run with `--allow-known-failures` exited **0**.
+- A serial `--files=... --tests=... --update-baseline` run left the baseline
+  byte-identical, as intended.

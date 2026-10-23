@@ -81,7 +81,10 @@ failure not in the baseline still exits 1.
 
 `--update-baseline` records the current failures, sorted, so the file is stable in
 review. It is a deliberate action, not part of a normal run; the write finishes
-before the process exits or any comparison reads the file back.
+before the process exits or any comparison reads the file back. Only a full run
+writes it: a filtered, changed or sharded selection leaves the existing baseline
+untouched, and under the coordinator the workers report failures while the
+coordinator merges and writes once.
 
 Identity is suite + relative file + expanded title, so it survives sharding and
 worker reassignment. A test that did not run is never reported as fixed.
