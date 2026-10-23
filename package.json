@@ -27,7 +27,7 @@
     "test": "cross-env NODE_DEBUG=japa:runner c8 npm run quick:test",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && npm run typecheck --workspace=@japa/adonis",
     "clean": "del-cli build",
     "precompile": "npm run lint && npm run clean",
     "compile": "npm run build:core && tsdown && tsc --emitDeclarationOnly --declaration",
@@ -163,7 +163,8 @@
   },
   "prettier": "@adonisjs/prettier-config",
   "workspaces": [
-    "packages/core"
+    "packages/core",
+    "packages/adonis"
   ],
   "bin": {
     "japa-parallel": "build/bin/parallel.js",

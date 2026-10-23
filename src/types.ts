@@ -56,6 +56,7 @@ export type CLIArgs = {
   reporterAgent?: boolean
   changed?: string
   prepare?: boolean
+  prepareCaches?: boolean
   failedNew?: boolean
   agentFile?: string
   agentAll?: boolean

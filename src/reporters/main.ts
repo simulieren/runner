@@ -9,6 +9,7 @@
 
 import type { BaseReporterOptions, NamedReporterContract } from '../types.js'
 import type { AgentReporterOptions } from './agent.js'
+export type { AgentReporterOptions } from './agent.js'
 
 /**
  * Create an instance of the spec reporter

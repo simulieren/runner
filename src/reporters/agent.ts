@@ -138,7 +138,7 @@ export class AgentReporter extends BaseReporter {
     if (this.#onlyFailures && status === 'passed') return
 
     this.#emit({
-      t: 'test',
+      event: 'test',
       status,
       file: file ? relative(process.cwd(), file) : undefined,
       group: payload.meta?.group?.title,
@@ -155,7 +155,7 @@ export class AgentReporter extends BaseReporter {
   protected onGroupEnd(payload: GroupEndNode): void {
     if (!payload.errors.length) return
     this.#emit({
-      t: 'group-error',
+      event: 'group-error',
       group: payload.title,
       errors: payload.errors.map((e) => this.#serialize(e.error)),
     })
@@ -164,7 +164,7 @@ export class AgentReporter extends BaseReporter {
   protected onSuiteEnd(payload: SuiteEndNode): void {
     if (!payload.errors.length) return
     this.#emit({
-      t: 'suite-error',
+      event: 'suite-error',
       suite: payload.name,
       errors: payload.errors.map((e) => this.#serialize(e.error)),
     })
@@ -176,7 +176,7 @@ export class AgentReporter extends BaseReporter {
     const repeats = [...this.#seen.entries()].filter(([, count]) => count > 1)
 
     this.#emit({
-      t: 'summary',
+      event: 'summary',
       ...summary.aggregates,
       durationMs: Math.round(summary.duration * 1000) / 1000,
       ok: !summary.hasError,

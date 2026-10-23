@@ -47,7 +47,7 @@ both the wall time and the output it has to read. Four optional features target
 that loop. All are best-effort and all fall back to the previous behaviour rather
 than changing which tests run.
 
-### Prepare (`--prepare`)
+### Prepare caches (`--prepare-caches`, alias `--prepare`)
 
 Imports every file, writes the selection index and the dependency map, and exits
 without running a test. It is the cheap way to prime a fresh checkout; the two
@@ -269,7 +269,8 @@ project when ready. The runner depends on the unpublished core prerelease;
 installing the runner tarball alone cannot resolve that version from npm.
 
 `--index-file` and `--dependency-file` let both caches live in a tracked path, so
-a fresh checkout can start with them. `japa-agent` also writes a delta report
+a fresh checkout can start with them. Cache files use one naming convention:
+`index-<hash>.json`, `durations-<hash>.json` and `dependencies-<hash>.json`. `japa-agent` also writes a delta report
 beside the agent stream. See [the harness guide](AGENT_INTEGRATION.md).
 
 Benchmark probes are available as `npm run bench:timing-cache`,

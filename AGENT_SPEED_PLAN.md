@@ -119,7 +119,7 @@ pre-commit hook ship them, so agents start fast immediately.
 1. Create a fixture, write six files.
 2. Run `--prepare --index-file=.japa/index.json --dependency-file=.japa/deps.json`.
 3. Assert both files exist and `node_modules/.cache/japa` does **not** contain
-   `index-*` or `dependencies.json`.
+   `index-*` or `dependencies-*`.
 4. Remove `node_modules/.cache/japa` entirely.
 5. Run `--tests="case 3" --index-file=.japa/index.json --dependency-file=.japa/deps.json`
    with `--agent --agent-all --agent-file=...`.
@@ -181,7 +181,7 @@ cache directory is deleted, using only the tracked files.
   emit fixed tests: a test can be absent because it was not selected.
 - In `bin/agent.ts`:
   1. Before running, read the previous report at the resolved `--out` path, if it
-     exists. Parse JSON lines; collect `t === "summary"` and failed `t === "test"`
+     exists. Parse JSON lines; collect `event === "summary"` and failed `event === "test"`
      rows.
   2. After the run, parse the new file and call `diffReports`.
   3. Write `<out>.delta.json` with `{ comparable, newFailures, fixed, counts }`.
@@ -462,8 +462,8 @@ came from a loaded host, label it load-affected.
 | B1 boot attribution | Done | `benchmarks/ats-validation/probes/boot_breakdown.mjs` |
 | B2 lazy providers | **Stopped based on B1** | Adonis provider files are tens of ms; the cost is Node's ESM hook path |
 | B3 loader experiment | Preliminary only | `tsx`: 3.49 s bootstrap vs 4.98–5.08 s for `ts-exec`; direct-loader samples noisy; full-suite correctness unverified |
-| C1 Adonis helpers | Done | `factories/adonis.ts` + `tests/adonis_worker_env.spec.ts` |
-| C2 Ace wrapper | Documented | Snippet in `AGENT_INTEGRATION.md`; no Ace dependency added |
+| C1 Adonis helpers | Done | Private `packages/adonis` (`workerResources`, `workerEnv`, `assertWorkerIsolation`) |
+| C2 Ace wrapper | Documented | Snippet in `AGENT_INTEGRATION.md` and `packages/adonis/README.md`; command class stays app-side |
 | C3 rollback helper | Not started | Stretch; needs a quiet host and an isolation review |
 
 Remaining high-value work: verify `tsx` (or a compiled test run) across the full

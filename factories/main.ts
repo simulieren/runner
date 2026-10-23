@@ -15,13 +15,6 @@ import { RunnerFactory } from './runner.js'
  */
 export const runner = () => new RunnerFactory()
 export { createDummyTests } from './create_dummy_tests.js'
-export {
-  adonisWorkerResources,
-  applyAdonisWorkerEnv,
-  assertAdonisWorkerIsolation,
-  type AdonisWorkerConfig,
-  type AdonisWorkerResources,
-} from './adonis.js'
 export const syncReporter: ReporterContract = {
   name: 'sync',
   handler(r, emitter) {

@@ -60,7 +60,7 @@ a targeted cold run.
 
 | Flag | Effect |
 | --- | --- |
-| `--prepare` | Import every file, write the selection index and dependency map, run no tests. Application setup hooks still run; only test execution is skipped. Cheapest way to prime a fresh checkout. |
+| `--prepare-caches` (alias `--prepare`) | Import every file, write the selection index and dependency map, run no tests. Application setup hooks still run; only test execution is skipped. Cheapest way to prime a fresh checkout. |
 | `--tests` / `--groups` / `--tags` | Filter as before, but files that cannot match are no longer imported. |
 | `--changed=auto` | Use `git diff --name-only HEAD` plus untracked files. |
 | `--changed=a.ts,b.ts` | Explicit paths, relative to the app directory. |
@@ -96,20 +96,28 @@ NODE_COMPILE_CACHE=node_modules/.cache/node-compile npx japa-agent -- node bin/t
 
 ## AdonisJS helpers
 
-`@japa/runner/factories` exports `adonisWorkerResources`,
-`applyAdonisWorkerEnv` and `assertAdonisWorkerIsolation`. They derive isolated
-database, Redis, search, HTTP and mail values from `JAPA_WORKER_ID`:
+The private `@japa/adonis` workspace package exports `workerResources`,
+`workerEnv` and `assertWorkerIsolation`. They derive isolated database, Redis,
+search, HTTP and mail values from `JAPA_WORKER_ID`, return the environment without
+mutating it, and validate it against the worker:
 
 ```ts
-import { adonisWorkerResources, applyAdonisWorkerEnv } from '@japa/runner/factories'
+import { workerResources, workerEnv, assertWorkerIsolation } from '@japa/adonis'
 
-const resources = adonisWorkerResources(Number(process.env.JAPA_WORKER_ID ?? 1), {
+const resources = workerResources(Number(process.env.JAPA_WORKER_ID ?? 1), {
   databasePrefix: 'myapp_test_',
   redisBasePort: 26_380,
   httpBasePort: 24_330,
 })
-applyAdonisWorkerEnv(resources)
+
+Object.assign(process.env, workerEnv(resources))
+assertWorkerIsolation(resources)
 ```
+
+Environment variable names are configurable through the second argument when an
+app does not use Typesense. The package is private and not published; Adonis
+command classes still live in the app, so the Ace wrapper remains a small
+documented example.
 
 Provisioning the database and services is still the app's job; the helpers only
 derive and validate names and ports. An Ace command can wrap the whole loop:
@@ -117,7 +125,11 @@ derive and validate names and ports. An Ace command can wrap the whole loop:
 ```ts
 // commands/test.ts (illustrative; depends on your @adonisjs/core version)
 import { spawn } from 'node:child_process'
-const child = spawn('npx', ['japa-agent', '--', process.execPath, '--import=@poppinss/ts-exec', 'bin/test.ts', ...this.parsed.args], { stdio: 'inherit' })
+const child = spawn(
+  'npx',
+  ['japa-agent', '--', process.execPath, '--import=@poppinss/ts-exec', 'bin/test.ts', ...this.parsed.args],
+  { stdio: 'inherit' }
+)
 ```
 
 ## Delta reports
@@ -142,8 +154,8 @@ Code 2 is what lets a harness stop retrying a command that cannot succeed.
 One JSON object per line:
 
 ```json
-{"t":"test","status":"failed","file":"tests/user.spec.ts","group":"user","title":"creates a user","durationMs":4.2,"errors":[{"name":"AssertionError","message":"expected 1 to equal 2","location":{"file":"tests/user.spec.ts","line":31},"repeated":true}]}
-{"t":"summary","total":2,"failed":1,"passed":1,"regression":0,"skipped":0,"todo":0,"durationMs":12.4,"ok":false,"selection":{"mode":"filtered","planned":1,"skipped":12},"phases":{"bootMs":4310,"importMs":180,"testMs":12},"baseline":{"known":1,"new":0},"errorGroups":[{"message":"expected 1 to equal 2","count":3}]}
+{"event":"test","status":"failed","file":"tests/user.spec.ts","group":"user","title":"creates a user","durationMs":4.2,"errors":[{"name":"AssertionError","message":"expected 1 to equal 2","location":{"file":"tests/user.spec.ts","line":31},"repeated":true}]}
+{"event":"summary","total":2,"failed":1,"passed":1,"regression":0,"skipped":0,"todo":0,"durationMs":12.4,"ok":false,"selection":{"mode":"filtered","planned":1,"skipped":12},"phases":{"bootMs":4310,"importMs":180,"testMs":12},"baseline":{"known":1,"new":0},"errorGroups":[{"message":"expected 1 to equal 2","count":3}]}
 ```
 
 - `--agent` emits failing, skipped and todo tests only. Use

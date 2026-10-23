@@ -1074,10 +1074,8 @@ test.describe('Automatic duration history and worker coordination', () => {
 
     // Any full run records dependencies for the next one.
     await run([])
-    const depsRaw = await readFile(
-      `${cwd}/node_modules/.cache/japa/dependencies.json`,
-      'utf8'
-    ).catch(() => 'MISSING')
+    const { dependencyFile } = await import('../src/dependencies.js')
+    const depsRaw = await readFile(dependencyFile(cwd), 'utf8').catch(() => 'MISSING')
     const deps = JSON.parse(depsRaw)
     assert.equal(Object.keys(deps.files).length, 6, depsRaw.slice(0, 400))
 
@@ -1111,7 +1109,11 @@ test.describe('Automatic duration history and worker coordination', () => {
     const cache = await readdir(`${cwd}/node_modules/.cache/japa`)
     const indexFiles = cache.filter((name) => name.startsWith('index-'))
     assert.lengthOf(indexFiles, 1)
-    assert.isTrue(cache.includes('dependencies.json'))
+    assert.equal(
+      cache.some((name) => name.startsWith('dependencies-')),
+      true
+    )
+    assert.isTrue(cache.some((name) => name.startsWith('dependencies-')))
   })
 
   test('--failed-new skips failures recorded in the baseline', async (context) => {
@@ -1168,13 +1170,13 @@ test.describe('Automatic duration history and worker coordination', () => {
 
     const reported = await run(['--agent', '--agent-file=report.jsonl'], { TEST_FAIL: '1' })
     assert.equal(reported.code, 1)
-    assert.equal(reported.stdout.includes('"t":"test"'), false)
+    assert.equal(reported.stdout.includes('"event":"test"'), false)
     const raw = await readFile(`${cwd}/report.jsonl`, 'utf8')
     const lines = raw
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line))
-    assert.equal(lines.at(-1).t, 'summary')
+    assert.equal(lines.at(-1).event, 'summary')
     assert.isAbove(lines.at(-1).selection.planned, 0)
 
     // An invalid shard fails during planning, which is an infrastructure error.
@@ -1285,7 +1287,7 @@ test.describe('Automatic duration history and worker coordination', () => {
     await access(`${cwd}/.japa/deps.json`)
     const defaultCache = await readdir(`${cwd}/node_modules/.cache/japa`).catch(() => [])
     assert.equal(
-      defaultCache.some((name) => name.startsWith('index-') || name === 'dependencies.json'),
+      defaultCache.some((name) => name.startsWith('index-') || name.startsWith('dependencies-')),
       false
     )
 
@@ -1353,7 +1355,7 @@ test.describe('Automatic duration history and worker coordination', () => {
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line))
-    assert.equal(lines.at(-1).t, 'summary')
+    assert.equal(lines.at(-1).event, 'summary')
     assert.equal(lines.at(-1).ok, true)
     // No git repository, so --changed=auto falls back to everything.
     assert.equal(lines.at(-1).selection.fallback, true)
@@ -1480,11 +1482,11 @@ test.describe('Automatic duration history and worker coordination', () => {
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line))
-    const failed = lines.filter((line) => line.t === 'test' && line.status === 'failed')
+    const failed = lines.filter((line) => line.event === 'test' && line.status === 'failed')
     assert.lengthOf(failed, 2)
     assert.include(failed[0].file, 'file0.spec.ts')
     assert.match(failed[0].errors[0].message, /Expected fixture failure/)
-    assert.deepEqual(lines.at(-1).t, 'summary')
+    assert.deepEqual(lines.at(-1).event, 'summary')
     assert.equal(lines.at(-1).ok, false)
 
     // Record those failures, then the same run is accepted as known.

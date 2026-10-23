@@ -1,0 +1,14 @@
+{
+  "name": "@japa/adonis",
+  "version": "0.0.0",
+  "private": true,
+  "description": "AdonisJS helpers for isolated Japa test workers",
+  "type": "module",
+  "main": "index.ts",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

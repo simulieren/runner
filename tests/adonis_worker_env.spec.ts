@@ -9,16 +9,12 @@
 
 import { assert } from 'chai'
 import { test } from 'node:test'
-import {
-  adonisWorkerResources,
-  applyAdonisWorkerEnv,
-  assertAdonisWorkerIsolation,
-} from '../factories/adonis.js'
+import { workerResources, workerEnv, assertWorkerIsolation } from '../packages/adonis/index.js'
 
 test.describe('Adonis worker resources', () => {
   test('derive distinct resources for each worker', () => {
-    const first = adonisWorkerResources(1)
-    const second = adonisWorkerResources(2)
+    const first = workerResources(1)
+    const second = workerResources(2)
 
     assert.equal(first.database, 'japa_speed_worker1')
     assert.equal(second.database, 'japa_speed_worker2')
@@ -34,7 +30,7 @@ test.describe('Adonis worker resources', () => {
   })
 
   test('honor custom bases and prefixes', () => {
-    const resources = adonisWorkerResources(3, {
+    const resources = workerResources(3, {
       databasePrefix: 'acme_test_',
       redisBasePort: 30_000,
       searchPrefix: 'acme',
@@ -52,17 +48,14 @@ test.describe('Adonis worker resources', () => {
   })
 
   test('reject invalid worker ids and ports', () => {
-    assert.throws(() => adonisWorkerResources(0), /worker must be an integer/)
-    assert.throws(() => adonisWorkerResources(1.5), /worker must be an integer/)
-    assert.throws(
-      () => adonisWorkerResources(1, { redisBasePort: 65_535 }),
-      /out of range for worker 1/
-    )
+    assert.throws(() => workerResources(0), /worker must be an integer/)
+    assert.throws(() => workerResources(1.5), /worker must be an integer/)
+    assert.throws(() => workerResources(1, { redisBasePort: 65_535 }), /out of range for worker 1/)
   })
 
   test('apply the standard environment names', () => {
     const env: NodeJS.ProcessEnv = {}
-    applyAdonisWorkerEnv(adonisWorkerResources(4), env)
+    Object.assign(env, workerEnv(workerResources(4)))
 
     assert.equal(env.DB_DATABASE, 'japa_speed_worker4')
     assert.equal(env.REDIS_PORT, '26384')
@@ -75,15 +68,14 @@ test.describe('Adonis worker resources', () => {
   })
 
   test('accept matching resources and name the first mismatch', () => {
-    const expected = adonisWorkerResources(5)
-    assert.doesNotThrow(() =>
-      assertAdonisWorkerIsolation({ worker: 5, expected, actual: expected })
-    )
+    const expected = workerResources(5)
+    const env = workerEnv(expected)
+    assert.doesNotThrow(() => assertWorkerIsolation(expected, env))
 
-    const actual = { ...expected, redisPort: 1 }
+    const wrong = { ...env, REDIS_PORT: '1' }
     assert.throws(
-      () => assertAdonisWorkerIsolation({ worker: 5, expected, actual }),
-      /resource mismatch for redisPort: expected 26385, received 1/
+      () => assertWorkerIsolation(expected, wrong),
+      /resource mismatch for REDIS_PORT: expected 26385, received 1/
     )
   })
 })

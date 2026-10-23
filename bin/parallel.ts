@@ -60,6 +60,9 @@ async function main() {
     for (const worker of result.workers) {
       if (worker.error) console.error(`[japa-parallel] worker ${worker.worker}: ${worker.error}`)
     }
+    if (updateBaseline && !result.baselineUpdated) {
+      console.error('[japa-parallel] baseline not updated: the run was partial or incomplete')
+    }
     const exitCode = signalCode ?? result.exitCode
     console.log(
       `[japa-parallel] workers=${result.workers.length} exit=${exitCode} timings=${result.historyUpdated ? 'updated' : 'unchanged'}${result.baselineUpdated ? ' baseline=updated' : ''}`

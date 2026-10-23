@@ -59,18 +59,15 @@ export function parseAgentReport(text: string): ParsedAgentReport {
     } catch {
       continue
     }
-    if (record.t === 'summary' && typeof record.total === 'number') {
+    const kind = record.event ?? record.t
+    if (kind === 'summary' && typeof record.total === 'number') {
       summary = {
         total: record.total,
         ...(record.selection && typeof record.selection === 'object'
           ? { selection: record.selection as AgentSelection }
           : {}),
       }
-    } else if (
-      record.t === 'test' &&
-      record.status === 'failed' &&
-      typeof record.title === 'string'
-    ) {
+    } else if (kind === 'test' && record.status === 'failed' && typeof record.title === 'string') {
       failures.push({
         ...(typeof record.file === 'string' ? { file: record.file } : {}),
         title: record.title,

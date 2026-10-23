@@ -22,6 +22,8 @@ import { ConfigManager } from './src/config_manager.js'
 import { ExceptionsManager } from './src/exceptions_manager.js'
 import { createTest, createTestGroup } from './src/create_test.js'
 import type { CLIArgs, Config, NormalizedConfig } from './src/types.js'
+export type { Baseline, BaselineEntry } from './src/failure_baseline.js'
+export type { AgentDelta, AgentTestRow, AgentSummary } from './src/agent_delta.js'
 import {
   Emitter,
   type Group,
@@ -404,7 +406,7 @@ export async function run() {
      * running a single test. It exists so an agent entering a repository pays the
      * import cost once instead of a full suite run.
      */
-    if (cliArgs.prepare) {
+    if (cliArgs.prepare || cliArgs.prepareCaches) {
       const { flushDependencies } = await import('./src/dependencies.js')
       await flushDependencies()
       const summary = { event: 'prepare', prepared: true }
@@ -495,6 +497,11 @@ export async function run() {
         !filters.files?.length
       if (cliArgs.updateBaseline && isFullRun) {
         await writeBaseline(file, { version: 1, failures: runFailures.failures })
+      } else if (cliArgs.updateBaseline && !process.env.JAPA_SPEED_RUN_ID) {
+        console.warn(
+          'Baseline not updated: --update-baseline requires a full run ' +
+            '(no test, file, group, tag, changed or failed filter and no shard).'
+        )
       }
       if (cliArgs.allowKnownFailures) {
         const baseline = await readBaseline(file)

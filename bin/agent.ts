@@ -71,7 +71,10 @@ function run(command: string, args: string[], cwd: string, timeout?: number) {
 async function hasCaches(cwd: string) {
   const directory = join(cwd, 'node_modules/.cache/japa')
   const names = await readdir(directory).catch(() => [] as string[])
-  return names.some((name) => name.startsWith('index-')) && names.includes('dependencies.json')
+  return (
+    names.some((name) => name.startsWith('index-')) &&
+    names.some((name) => name.startsWith('dependencies-'))
+  )
 }
 
 async function main() {

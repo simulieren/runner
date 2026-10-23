@@ -11,13 +11,13 @@ import { diffReports, parseAgentReport } from '../src/agent_delta.js'
 
 const summary = (total, planned = 1, skipped = 0) =>
   JSON.stringify({
-    t: 'summary',
+    event: 'summary',
     total,
     selection: { mode: 'filtered', planned, skipped },
   })
 
 const failed = (title, file = 'tests/a.spec.ts') =>
-  JSON.stringify({ t: 'test', status: 'failed', file, title })
+  JSON.stringify({ event: 'test', status: 'failed', file, title })
 
 test('parse keeps the summary and failures, ignoring noise', () => {
   const parsed = parseAgentReport(`${summary(2)}\n${failed('one')}\nnot json\n`)

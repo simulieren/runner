@@ -42,6 +42,7 @@ const OPTIONS = {
     'updateBaseline',
     'reporterAgent',
     'prepare',
+    'prepareCaches',
     'failedNew',
     'agentAll',
   ],
@@ -56,6 +57,7 @@ const OPTIONS = {
     agentFile: 'agent-file',
     indexFile: 'index-file',
     dependencyFile: 'dependency-file',
+    prepareCaches: 'prepare-caches',
     failedNew: 'failed-new',
     agentAll: 'agent-all',
     help: 'h',
@@ -84,10 +86,10 @@ ${colors.green('--bail-layer')}                ${colors.dim('Specify at which la
 ${colors.green('--shard')}                     ${colors.dim('Run a subset of test files. Must be in "current/total" format')}
 ${colors.green('--allow-known-failures')}      ${colors.dim('Exit 0 when the only failures are recorded in japa.baseline.json')}
 ${colors.green('--update-baseline')}           ${colors.dim("Record this run's failures as the new japa.baseline.json")}
-${colors.green('--agent')}                     ${colors.dim('Print machine-readable NDJSON results instead of a terminal report')}
+${colors.green('--agent')}                     ${colors.dim('Print machine-readable NDJSON results instead of a terminal report; setup/planning failures exit 2')}
 ${colors.green('--changed')}                   ${colors.dim('Run only files affected by the given changed paths, or "auto" for git changes')}
 ${colors.green('--failed-new')}                ${colors.dim('With --failed, skip failures already recorded in japa.baseline.json')}
-${colors.green('--prepare')}                   ${colors.dim('Build the selection and dependency caches without running tests')}
+${colors.green('--prepare-caches')}            ${colors.dim('Build the selection and dependency caches without running tests (--prepare is an alias)')}
 ${colors.green('--agent-file')}                ${colors.dim('Write agent JSON lines to a file instead of stdout')}
 ${colors.green('--agent-all')}                 ${colors.dim('With the agent reporter, emit passing tests too')}
 ${colors.green('--index-file')}                ${colors.dim('Path to the selection index cache (default under node_modules/.cache/japa)')}
