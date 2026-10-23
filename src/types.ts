@@ -65,6 +65,30 @@ export type CLIArgs = {
 } & Record<string, string | string[] | boolean>
 
 /**
+ * Map a test file to source files it depends on without importing them, such as the
+ * controller behind a route it requests. Paths are relative to `cwd` or absolute.
+ */
+export type DependencyResolver = (testFile: string) => Iterable<string> | Promise<Iterable<string>>
+
+/**
+ * Guess the tests for a changed file that no test reaches. `from` and `to` are path
+ * prefixes where each `*` stands for one path segment, e.g.
+ * `{ from: 'app/modules/*\/', to: 'tests/modules/*\/' }`.
+ */
+export type HeuristicRule = { from: string; to: string }
+
+export type SelectionOptions = {
+  /** Run while recording the dependency map; their files join the test's dependencies. */
+  resolvers?: DependencyResolver[]
+  /**
+   * When a changed path is reached by no test and is not loaded at boot, run test files
+   * named after it (`lease.ts` -> `lease.spec.ts`) plus the files the rules map it to,
+   * instead of the full suite. The selection is reported as heuristic. Off by default.
+   */
+  heuristic?: boolean | HeuristicRule[]
+}
+
+/**
  * The shard to run when splitting test files across multiple
  * processes or CI jobs. Both values are 1-based.
  */
@@ -108,6 +132,9 @@ export type BaseConfig = {
 
   /** File duration estimates in milliseconds; enables balanced sharding when nonempty. */
   shardDurations?: Record<string, number>
+
+  /** How `--changed` places files that no import reaches. */
+  selection?: SelectionOptions
 
   /**
    * The timeout to apply on all the tests, unless overwritten explicitly

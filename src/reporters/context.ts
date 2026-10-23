@@ -24,6 +24,10 @@ export type AgentContext = {
     fallback?: boolean
     /** Why `--changed` ran everything, worded as the fix. */
     fallbackReason?: string
+    /** Some changed paths were placed by name or rule, not by imports. */
+    heuristic?: boolean
+    /** Those paths, at most 20. */
+    guessed?: string[]
   }
   phases?: {
     bootMs: number

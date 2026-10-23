@@ -13,17 +13,18 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { dirname, join, resolve } from 'node:path'
 import { availableParallelism } from 'node:os'
 import {
-  explainChangedFallback,
-  filesAffectedBy,
   gitChangedPaths,
   readDependencyMap,
+  selectChanged,
+  selectionDetail,
+  type ChangedSelection,
 } from './dependencies.js'
 import { warn } from './helpers.js'
-import { dependencyFile } from './cache_paths.js'
+import { cacheDir, dependencyFile } from './cache_paths.js'
 import debug from './debug.js'
 import { getFailedTests, cacheFailedTests } from './plugins/retry_cache.js'
 import { baselineFile, updateBaseline, type BaselineEntry } from './failure_baseline.js'
-import { withCacheLock } from './cache_lock.js'
+import { withCacheLock, withRunLock } from './cache_lock.js'
 import {
   blendDuration,
   historyFile,
@@ -65,7 +66,7 @@ function optionValue(args: string[], name: string) {
 }
 
 /** Freeze one changed-file selection for every worker. */
-async function changedFiles(cwd: string, args: string[]) {
+async function changedFiles(cwd: string, args: string[], options: { quiet?: boolean } = {}) {
   const changed = optionValue(args, '--changed')
   if (!changed) return undefined
   const paths =
@@ -76,13 +77,35 @@ async function changedFiles(cwd: string, args: string[]) {
           .map((path) => path.trim())
           .filter(Boolean)
   const map = await readDependencyMap(dependencyFile(cwd, optionValue(args, '--cache-dir')))
-  const affected = filesAffectedBy(map, paths)
-  if (!affected) {
+  const outcome = selectChanged(map, paths)
+  if (options.quiet) return outcome
+  if (outcome.kind === 'full') {
+    warn(`[japa-parallel] --changed is running the full suite: ${outcome.reason}`)
+  } else if (outcome.kind === 'heuristic') {
     warn(
-      `[japa-parallel] --changed is running the full suite: ${explainChangedFallback(map, paths) ?? 'the dependency map cannot answer.'}`
+      `[japa-parallel] --changed guessed tests by name for ${outcome.guessed.length} path(s) ` +
+        'no test imports. Run the full suite before relying on it.'
     )
   }
-  return affected
+  return outcome
+}
+
+/** Test time an extra worker must take over to pay for booting the app once more. */
+const WORKER_BREAK_EVEN_MS = 10_000
+
+/** Recorded test time of the files a run will plan, or all of them when `only` is unset. */
+export function estimateDurationMs(durations: Record<string, number>, only?: readonly string[]) {
+  const entries = Object.entries(durations)
+  if (!entries.length) return undefined
+  if (!only) return entries.reduce((total, [, ms]) => total + ms, 0)
+  const byFile = new Map<string, number>()
+  for (const [key, ms] of entries) {
+    const file = key.slice(key.indexOf(':') + 1)
+    byFile.set(file, (byFile.get(file) ?? 0) + ms)
+  }
+  const known = [...byFile.values()].sort((a, b) => a - b)
+  const median = known[Math.floor(known.length / 2)] ?? 0
+  return only.reduce((total, file) => total + (byFile.get(file) ?? median), 0)
 }
 
 function replaceAgentFile(args: string[], file: string) {
@@ -108,7 +131,7 @@ function sumField(records: Record<string, unknown>[], key: string) {
   )
 }
 
-async function mergeAgentReports(files: string[], target: string) {
+async function mergeAgentReports(files: string[], target: string, outcome?: ChangedSelection) {
   const lines: string[] = []
   const summaries: Record<string, unknown>[] = []
   for (const file of files) {
@@ -176,7 +199,10 @@ async function mergeAgentReports(files: string[], target: string) {
                       .slice(0, 16),
                   }
                 : {}),
-              ...(selections.some((item) => item.fallback === true) ? { fallback: true } : {}),
+              ...(selections.some((item) => item.fallback === true) || outcome?.kind === 'full'
+                ? { fallback: true }
+                : {}),
+              ...selectionDetail(outcome),
             },
           }
         : {}),
@@ -219,10 +245,14 @@ async function mergeAgentReports(files: string[], target: string) {
 
 /**
  * A narrow selection usually costs less than the extra application boots a pool
- * would pay. Title/file/tag/group/change/failed filters therefore run on one
- * worker unless the caller asked for a specific count.
+ * would pay. With recorded durations the count follows the planned test time;
+ * without them, title/file/tag/group/change/failed filters run on one worker.
  */
-export function autoWorkerCount(args: string[]) {
+export function autoWorkerCount(args: string[], estimatedMs?: number) {
+  if (estimatedMs !== undefined) {
+    const cap = Math.max(1, Math.min(8, availableParallelism() - 2))
+    return Math.max(1, Math.min(cap, Math.floor(estimatedMs / WORKER_BREAK_EVEN_MS)))
+  }
   const narrow = args.some(
     (arg) =>
       arg.startsWith('--tests') ||
@@ -235,11 +265,68 @@ export function autoWorkerCount(args: string[]) {
   return narrow ? 1 : Math.min(4, availableParallelism())
 }
 
-/** Launch shards against one frozen history snapshot and promote results together. */
+/** Only a change selection or the whole suite has a plan the history can price. */
+function pricedEstimate(
+  args: string[],
+  outcome: ChangedSelection | undefined,
+  durations: Record<string, number>
+) {
+  const filtered = args.some((arg) => /^--(tests|groups|tags|files|failed)/.test(arg))
+  if (outcome === undefined && filtered) return undefined
+  return estimateDurationMs(
+    durations,
+    outcome && outcome.kind !== 'full' ? outcome.files : undefined
+  )
+}
+
+/**
+ * The worker count `--workers=auto` would pick for this command, without running it.
+ * Wrappers use it to stay in one process when a pool would not pay for itself.
+ */
+export async function plannedWorkerCount(options: {
+  args: string[]
+  cwd?: string
+  historyFile?: string
+}) {
+  const cwd = await realpath(options.cwd ?? process.cwd())
+  const history = await readHistory(historyFile(cwd, options.historyFile), cwd)
+  const outcome = await changedFiles(cwd, options.args, { quiet: true })
+  return autoWorkerCount(options.args, pricedEstimate(options.args, outcome, history.durations))
+}
+
+/**
+ * Launch shards against one frozen history snapshot and promote results together.
+ *
+ * Worker N of every run gets the same resources (`JAPA_WORKER_ID` decides an app's
+ * database, port and so on), so two pools in one project would share them. A second
+ * run waits for the first. `JAPA_PARALLEL_LOCK=0` opts out for apps that isolate runs
+ * themselves.
+ */
 export async function runParallel(options: ParallelOptions): Promise<ParallelResult> {
+  if (process.env.JAPA_PARALLEL_LOCK === '0') return runPool(options)
+  const cwd = await realpath(options.cwd ?? process.cwd())
+  return withRunLock(
+    join(cacheDir(cwd), 'parallel.lock'),
+    () => runPool(options),
+    (owner) => warn(`[japa-parallel] waiting for the run in process ${owner} to finish`)
+  )
+}
+
+async function runPool(options: ParallelOptions): Promise<ParallelResult> {
+  if (!options.command) throw new Error('A test command is required')
+  if (options.args?.some((arg) => arg === '--shard' || arg.startsWith('--shard='))) {
+    throw new Error('The coordinator assigns --shard automatically; remove it from the command')
+  }
+  const cwd = await realpath(options.cwd ?? process.cwd())
+  const file = historyFile(cwd, options.historyFile)
+  const history = await readHistory(file, cwd)
+  const failed = await getFailedTests(cwd).catch(() => ({}) as { tests?: string[] })
+  const args = options.args ?? []
+  const outcome = await changedFiles(cwd, args)
+  const only = outcome && outcome.kind !== 'full' ? outcome.files : undefined
   const count =
     options.workers === 'auto'
-      ? autoWorkerCount(options.args ?? [])
+      ? autoWorkerCount(args, pricedEstimate(args, outcome, history.durations))
       : (options.workers ?? Math.min(4, availableParallelism()))
   if (!Number.isInteger(count) || count < 1 || count > 256)
     throw new Error('workers must be an integer between 1 and 256')
@@ -249,15 +336,6 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
         'app, so extra workers usually make the run slower, not faster.'
     )
   }
-  if (!options.command) throw new Error('A test command is required')
-  if (options.args?.some((arg) => arg === '--shard' || arg.startsWith('--shard='))) {
-    throw new Error('The coordinator assigns --shard automatically; remove it from the command')
-  }
-  const cwd = await realpath(options.cwd ?? process.cwd())
-  const file = historyFile(cwd, options.historyFile)
-  const history = await readHistory(file, cwd)
-  const failed = await getFailedTests(cwd).catch(() => ({}) as { tests?: string[] })
-  const only = await changedFiles(cwd, options.args ?? [])
   const agentReport = optionValue(options.args ?? [], '--agent-file')
   if (agentReport) await writeFile(resolve(cwd, agentReport), '').catch(() => {})
   const runId = randomUUID()
@@ -360,7 +438,8 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
     if (agentReport) {
       await mergeAgentReports(
         Array.from({ length: count }, (_, index) => join(directory, `agent-${index + 1}.jsonl`)),
-        resolve(cwd, agentReport)
+        resolve(cwd, agentReport),
+        outcome
       ).catch((error) => debug('unable to merge agent reports: %O', error))
     }
     let exitCode = aborted ? 130 : (workers.find((worker) => worker.exitCode !== 0)?.exitCode ?? 0)

@@ -1288,6 +1288,111 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.deepEqual(map.files['thing.spec.mjs'], ['helper.mjs', 'thing.spec.mjs'])
   })
 
+  test('stop the walk at packages, record boot files, and add resolver files', async (context) => {
+    const { mkdir, mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises')
+    const { pathToFileURL, fileURLToPath } = await import('node:url')
+    const cwd = await mkdtemp(fileURLToPath(new URL('../.deps-boot-', import.meta.url)))
+    context.after(() => rm(cwd, { recursive: true, force: true }))
+    await mkdir(`${cwd}/node_modules/framework`, { recursive: true })
+    await writeFile(
+      `${cwd}/node_modules/framework/index.mjs`,
+      "import '../../routes.mjs'\nexport const app = 1\n"
+    )
+    await writeFile(`${cwd}/routes.mjs`, "import './service.mjs'\nexport default 1\n")
+    await writeFile(`${cwd}/service.mjs`, 'export const service = 1\n')
+    await writeFile(`${cwd}/controller.mjs`, "import './validator.mjs'\nexport default 1\n")
+    await writeFile(`${cwd}/validator.mjs`, 'export default 1\n')
+    await writeFile(
+      `${cwd}/thing.spec.mjs`,
+      "import { app } from './node_modules/framework/index.mjs'\nexport default app\n"
+    )
+
+    const { recordDependencies } = await import('../src/dependencies.js')
+    const { dependencyFile } = await import('../src/cache_paths.js')
+    const listeners = new Map<string, (payload?: unknown) => boolean | void>()
+    const emitter = {
+      on: (name: string, fn: (payload?: unknown) => boolean | void) => {
+        listeners.set(name, fn)
+        return () => listeners.delete(name)
+      },
+      once: (name: string, fn: (payload?: unknown) => boolean | void) => {
+        listeners.set(name, fn)
+      },
+    }
+    const config = {
+      cwd,
+      importer: async (url: URL) => {
+        await import(url.href)
+      },
+      selection: { resolvers: [() => ['controller.mjs']], heuristic: true },
+    }
+    await recordDependencies()({ config, emitter } as never)
+    // The framework boots, loading project code, before the first test file.
+    await import(pathToFileURL(`${cwd}/node_modules/framework/index.mjs`).href)
+    await config.importer(pathToFileURL(`${cwd}/thing.spec.mjs`))
+    listeners.get('runner:end')?.()
+    await new Promise((done) => setTimeout(done, 200))
+
+    const map = JSON.parse(await readFile(dependencyFile(cwd), 'utf8'))
+    assert.deepEqual(map.files['thing.spec.mjs'], [
+      'controller.mjs',
+      'thing.spec.mjs',
+      'validator.mjs',
+    ])
+    assert.deepEqual(map.boot, ['routes.mjs', 'service.mjs'])
+    assert.deepEqual(map.heuristic, [])
+  })
+
+  test("queue a second pool behind the first and take over a dead owner's lock", async (context) => {
+    const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+    const { fileURLToPath } = await import('node:url')
+    const { withRunLock } = await import('../src/cache_lock.js')
+    const cwd = await mkdtemp(fileURLToPath(new URL('../.run-lock-', import.meta.url)))
+    context.after(() => rm(cwd, { recursive: true, force: true }))
+    const lock = `${cwd}/parallel.lock`
+    const order: string[] = []
+    const waited: number[] = []
+
+    await writeFile(lock, String(process.pid))
+    const queued = withRunLock(
+      lock,
+      async () => order.push('second'),
+      (owner) => waited.push(owner)
+    )
+    await new Promise((done) => setTimeout(done, 300))
+    order.push('first')
+    await rm(lock)
+    await queued
+    assert.deepEqual(order, ['first', 'second'])
+    assert.deepEqual(waited, [process.pid])
+
+    // No live process has pid 2^22 - 1 on a test machine, so the lock is stale.
+    await writeFile(lock, String(4_194_303))
+    assert.equal(
+      await withRunLock(
+        lock,
+        async () => 'taken',
+        () => {}
+      ),
+      'taken'
+    )
+  })
+
+  test('size an automatic pool by the planned test time', async () => {
+    const { autoWorkerCount, estimateDurationMs } = await import('../src/parallel.js')
+    const durations = {
+      'unit:a.spec.ts': 4_000,
+      'unit:b.spec.ts': 60_000,
+      'functional:b.spec.ts': 6_000,
+    }
+    assert.equal(estimateDurationMs(durations, ['a.spec.ts']), 4_000)
+    assert.equal(estimateDurationMs(durations, ['b.spec.ts']), 66_000)
+    assert.equal(estimateDurationMs(durations), 70_000)
+    assert.isUndefined(estimateDurationMs({}))
+    assert.equal(autoWorkerCount(['--changed=auto'], 4_000), 1)
+    assert.isAbove(autoWorkerCount([], 600_000), 1)
+  })
+
   test('keep configured reporters under --agent-file, replace them under --agent', async (context) => {
     const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises')
     const { fileURLToPath, pathToFileURL } = await import('node:url')
@@ -1348,17 +1453,44 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.isFalse(hasRuntimeRelativeImport("import { a } from '#app/a'"))
   })
 
-  test('explain why --changed cannot narrow, as the fix', async () => {
-    const { explainChangedFallback } = await import('../src/dependencies.js')
-    const empty = { version: 1 as const, files: {} }
-    const partial = { version: 1 as const, complete: false, files: { 'a.spec.ts': ['a.ts'] } }
-    const full = { version: 1 as const, complete: true, files: { 'a.spec.ts': ['a.ts'] } }
+  test('select changed files by imports, widen on boot code, guess only when asked', async () => {
+    const { selectChanged } = await import('../src/dependencies.js')
+    const files = {
+      'tests/lease.spec.ts': ['app/lease.ts', 'app/model.ts'],
+      'tests/billing/invoice.spec.ts': ['app/model.ts'],
+      'tests/modules/shop/cart.spec.ts': ['app/model.ts'],
+    }
+    const map = { version: 2 as const, complete: true, files, boot: ['config/app.ts'] }
+    const reasonOf = (outcome: ReturnType<typeof selectChanged>) =>
+      outcome.kind === 'full' ? outcome.reason : ''
 
-    assert.include(explainChangedFallback(empty, ['a.ts']), '--prepare-caches')
-    assert.include(explainChangedFallback(partial, ['a.ts']), 'recordImportsFromStart()')
-    assert.include(explainChangedFallback(full, []), 'no changed paths')
-    assert.include(explainChangedFallback(full, ['config/app.ts']), 'config/app.ts')
-    assert.isUndefined(explainChangedFallback(full, ['a.ts']))
+    assert.include(reasonOf(selectChanged({ ...map, files: {} }, ['a.ts'])), '--prepare-caches')
+    assert.include(
+      reasonOf(selectChanged({ ...map, complete: false }, ['a.ts'])),
+      'recordImportsFromStart()'
+    )
+    assert.include(reasonOf(selectChanged(map, [])), 'no changed paths')
+    assert.deepEqual(selectChanged(map, ['app/lease.ts']), {
+      kind: 'exact',
+      files: ['tests/lease.spec.ts'],
+    })
+    assert.include(reasonOf(selectChanged(map, ['config/app.ts'])), 'loaded at boot')
+    assert.include(reasonOf(selectChanged(map, ['app/controllers/cart.ts'])), 'resolver')
+
+    const guessing = { ...map, heuristic: [{ from: 'app/modules/*/', to: 'tests/modules/*/' }] }
+    assert.deepEqual(selectChanged(guessing, ['app/billing/invoice.ts']), {
+      kind: 'heuristic',
+      files: ['tests/billing/invoice.spec.ts'],
+      guessed: ['app/billing/invoice.ts'],
+    })
+    assert.deepEqual(selectChanged(guessing, ['app/modules/shop/controllers/pay.ts']), {
+      kind: 'heuristic',
+      files: ['tests/modules/shop/cart.spec.ts'],
+      guessed: ['app/modules/shop/controllers/pay.ts'],
+    })
+    // Boot code still runs everything, and so does a path no rule names.
+    assert.equal(selectChanged(guessing, ['config/app.ts']).kind, 'full')
+    assert.equal(selectChanged(guessing, ['app/unrelated.ts']).kind, 'full')
   })
 
   test('warn when preparing caches cannot see imports made before configure', async (context) => {
@@ -2101,7 +2233,12 @@ test.describe('Agent loop safety', () => {
       await mkdir(dirname(dependencyFile(cwd)), { recursive: true })
       await writeFile(
         dependencyFile(cwd),
-        JSON.stringify({ version: 1, complete: true, files: { 'test.spec.ts': ['helper.ts'] } })
+        JSON.stringify({
+          version: 2,
+          complete: true,
+          files: { 'test.spec.ts': ['helper.ts'] },
+          boot: [],
+        })
       )
       const registered = {
         suites: [
@@ -2136,11 +2273,10 @@ test.describe('Agent loop safety', () => {
     try {
       await writeFile(`${cwd}/index.json`, JSON.stringify({ version: 1, files: null }))
       assert.deepEqual(await readIndex(`${cwd}/index.json`), emptyIndex())
-      assert.deepEqual(parseDependencyMap({ version: 1, files: null }), {
-        version: 1,
-        complete: false,
-        files: {},
-      })
+      const empty = { version: 2 as const, complete: false, files: {}, boot: [] }
+      assert.deepEqual(parseDependencyMap({ version: 2, files: null, boot: [] }), empty)
+      // A version 1 map walked through packages and is never trusted.
+      assert.deepEqual(parseDependencyMap({ version: 1, complete: true, files: {} }), empty)
     } finally {
       await rm(cwd, { recursive: true, force: true })
     }

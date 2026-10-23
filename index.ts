@@ -24,7 +24,7 @@ import { createTest, createTestGroup } from './src/create_test.js'
 import type { CLIArgs, Config, NormalizedConfig } from './src/types.js'
 export type { Baseline, BaselineEntry } from './src/failure_baseline.js'
 export { recordImportsFromStart } from './src/dependencies.js'
-import { changedFallbackReason } from './src/dependencies.js'
+import { changedOutcome, selectionDetail } from './src/dependencies.js'
 export type { AgentDelta, AgentTestRow, AgentSummary } from './src/agent_delta.js'
 import {
   Emitter,
@@ -363,9 +363,7 @@ export async function run() {
           ...(requestedSelection && !(stats && stats.planned < stats.collected)
             ? { fallback: true }
             : {}),
-          ...(changedFallbackReason(runnerConfig!)
-            ? { fallbackReason: changedFallbackReason(runnerConfig!) }
-            : {}),
+          ...selectionDetail(changedOutcome(runnerConfig!)),
         },
         phases: {
           // Process uptime includes application boot before `run()` was called.

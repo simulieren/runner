@@ -7,7 +7,7 @@
  * file that was distributed with this source code.
  */
 
-import { mkdir, open, rm, stat } from 'node:fs/promises'
+import { mkdir, open, readFile, rm, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import debug from './debug.js'
 
@@ -51,6 +51,54 @@ export async function withCacheLock<T>(
       }
       // Must not be unref'd: the lock waiter has no other handle to keep the loop alive.
       await new Promise((done) => setTimeout(done, RETRY_MS))
+    }
+  }
+}
+
+function isAlive(pid: number) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/**
+ * Exclusive lock held for a whole run, which can last minutes, so staleness is
+ * decided by whether the owning process still exists rather than by age.
+ */
+export async function withRunLock<T>(
+  lock: string,
+  callback: () => Promise<T>,
+  onWait: (owner: number) => void
+): Promise<T> {
+  await mkdir(dirname(lock), { recursive: true })
+  let announced = false
+  while (true) {
+    try {
+      const handle = await open(lock, 'wx')
+      await handle.writeFile(String(process.pid))
+      try {
+        return await callback()
+      } finally {
+        await handle.close()
+        await rm(lock, { force: true }).catch(() => {})
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      const owner = Number(await readFile(lock, 'utf8').catch(() => ''))
+      // An empty file is a lock being written right now; only a dead owner is stale.
+      if (Number.isInteger(owner) && owner > 0 && !isAlive(owner)) {
+        debug('removing run lock %s left by exited process %d', lock, owner)
+        await rm(lock, { force: true }).catch(() => {})
+        continue
+      }
+      if (!announced && owner > 0) {
+        announced = true
+        onWait(owner)
+      }
+      await new Promise((done) => setTimeout(done, 250))
     }
   }
 }

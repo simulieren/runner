@@ -9,6 +9,7 @@ import {
   type AgentSummary,
   type ParsedAgentReport,
 } from '../src/agent_delta.js'
+import { plannedWorkerCount, runParallel } from '../src/parallel.js'
 
 /**
  * Harness-agnostic test loop for agents.
@@ -20,8 +21,10 @@ import {
  *   japa-agent --cwd=apps/web -- node --import=@poppinss/ts-exec bin/test.ts unit
  *
  * On first use it builds the selection caches, then runs only the files affected
- * by git changes and writes bounded JSON lines for the harness to read. Stdout is
- * left to the application; the wrapper reports on stderr.
+ * by git changes and writes bounded JSON lines for the harness to read. When the
+ * recorded durations of that selection outweigh another application boot, it runs
+ * on a `japa-parallel` pool instead of one process. Stdout is left to the
+ * application; the wrapper reports on stderr.
  */
 
 type Options = {
@@ -33,6 +36,7 @@ type Options = {
   report: boolean
   metrics: boolean
   cacheDir?: string
+  workers?: number | 'auto'
 }
 
 const SELECTION_FLAGS = /^--(tests|groups|tags|files|failed|changed|shard)(=|$)/
@@ -63,6 +67,14 @@ function agentFile(args: string[]) {
   return undefined
 }
 
+function workerOption(value: string | undefined) {
+  if (value === 'auto') return 'auto'
+  const count = Number(value)
+  if (!Number.isInteger(count) || count < 1)
+    throw new Error('--workers must be auto or a positive integer')
+  return count
+}
+
 function parse(argv: string[]): { options: Options; command: string[] } {
   const separator = argv.indexOf('--')
   const head = separator < 0 ? argv : argv.slice(0, separator)
@@ -80,6 +92,9 @@ function parse(argv: string[]): { options: Options; command: string[] } {
     else if (arg === '--cwd') options.cwd = head[++index]
     else if (arg.startsWith('--out=')) options.out = arg.slice('--out='.length)
     else if (arg === '--out') options.out = head[++index]
+    else if (arg.startsWith('--workers='))
+      options.workers = workerOption(arg.slice('--workers='.length))
+    else if (arg === '--workers') options.workers = workerOption(head[++index])
     else if (arg.startsWith('--timeout=')) options.timeout = Number(arg.slice('--timeout='.length))
     else if (arg === '--timeout') options.timeout = Number(head[++index])
     else throw new Error(`Unknown japa-agent option: ${arg}`)
@@ -130,6 +145,28 @@ function run(command: string, args: string[], cwd: string, timeout?: number) {
       done(signal ? 130 : (code ?? 1))
     })
   })
+}
+
+/** Run the command across a worker pool; one worker would only add a process hop. */
+async function runPool(
+  command: string,
+  args: string[],
+  cwd: string,
+  workers: number,
+  timeout?: number
+) {
+  process.stderr.write(`japa-agent: running on ${workers} workers\n`)
+  const controller = new AbortController()
+  const timer = timeout ? setTimeout(() => controller.abort(), timeout) : undefined
+  try {
+    const result = await runParallel({ command, args, cwd, workers, signal: controller.signal })
+    for (const worker of result.workers) {
+      if (worker.error) console.error(`[japa-parallel] worker ${worker.worker}: ${worker.error}`)
+    }
+    return controller.signal.aborted ? 130 : result.exitCode
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 /** Japa's cache directory, honouring --cache-dir in either the wrapper or the command. */
@@ -214,7 +251,7 @@ async function main() {
   }
   if (!command.length) {
     console.error(
-      'Usage: japa-agent [--cwd=path] [--out=path] [--full] [--no-prepare] -- <test command...>'
+      'Usage: japa-agent [--cwd=path] [--out=path] [--full] [--no-prepare] [--workers=auto|N] -- <test command...>'
     )
     return 1
   }
@@ -264,8 +301,18 @@ async function main() {
   if (!explicitReport) runArgs.push(`--agent-file=${reportPath}`)
   if (!options.full && !selectionGiven) runArgs.push('--changed=auto')
 
+  const fromEnv = process.env.JAPA_WORKERS
+  const requested = options.workers ?? (fromEnv ? workerOption(fromEnv) : 'auto')
+  const workers =
+    requested === 'auto'
+      ? await plannedWorkerCount({ args: runArgs, cwd }).catch(() => 1)
+      : requested
+
   const runStarted = performance.now()
-  const exit = await run(executable, runArgs, cwd, options.timeout)
+  const exit =
+    workers > 1
+      ? await runPool(executable, runArgs, cwd, workers, options.timeout)
+      : await run(executable, runArgs, cwd, options.timeout)
   const runMs = Math.round(performance.now() - runStarted)
 
   const current = await readReport(reportPath)

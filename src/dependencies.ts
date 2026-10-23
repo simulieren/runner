@@ -19,19 +19,34 @@ import debug from './debug.js'
 import { withCacheLock } from './cache_lock.js'
 import { setSelectionPlan } from './planning_state.js'
 import { warn } from './helpers.js'
-import type { PluginFn } from './types.js'
+import type { HeuristicRule, PluginFn } from './types.js'
 
 /**
  * Files each test file depends on, captured while it imports. Built by
  * `recordDependencies`, consumed by `changedSelection`.
  */
 export type DependencyMap = {
-  version: 1
+  version: 2
   /** True only when every configured suite file was imported by this map. */
   complete?: boolean
-  /** Test file (relative) -> source files it imported (relative). */
+  /** Test file (relative) -> project files its own imports and resolvers reach (relative). */
   files: Record<string, string[]>
+  /**
+   * Project files a package loaded before the first test file (config, providers,
+   * preloads, routes) and the project files they import. A change to one that no test
+   * reaches can affect any test.
+   */
+  boot: string[]
+  /** Present when `selection.heuristic` is on; the rules it configured. */
+  heuristic?: HeuristicRule[]
 }
+
+/** What `--changed` decided to run. */
+export type ChangedSelection =
+  | { kind: 'exact'; files: string[] }
+  /** `guessed` are the changed paths placed by name or rule rather than by imports. */
+  | { kind: 'heuristic'; files: string[]; guessed: string[] }
+  | { kind: 'full'; reason: string }
 
 // Only comments that open a line: a `/*` or `//` inside a string (a glob, a URL)
 // must never hide a real import, or the graph would be marked complete too early.
@@ -64,38 +79,117 @@ const RECORD_EARLY_HINT =
   'preloads first), call recordImportsFromStart() at the top of the test entrypoint, then ' +
   'rerun with --prepare-caches.'
 
-/** Why `--changed` ran the full suite, per run config; read into the agent summary. */
-const fallbackReasons = new WeakMap<object, string>()
+/** What `--changed` decided, per run config; read into the agent summary. */
+const outcomes = new WeakMap<object, ChangedSelection>()
 
-export function changedFallbackReason(config: object) {
-  return fallbackReasons.get(config)
+export function changedOutcome(config: object) {
+  return outcomes.get(config)
+}
+
+/** The agent-summary fields for a `--changed` outcome. */
+export function selectionDetail(outcome: ChangedSelection | undefined) {
+  if (outcome?.kind === 'full') return { fallbackReason: outcome.reason }
+  if (outcome?.kind === 'heuristic')
+    return { heuristic: true, guessed: outcome.guessed.slice(0, 20) }
+  return {}
+}
+
+function sampleOf(paths: string[]) {
+  return `${paths.slice(0, 3).join(', ')}${paths.length > 3 ? ', ...' : ''}`
+}
+
+/** `app/modules/*\/` -> a regex capturing each `*` segment. */
+function rulePattern(prefix: string) {
+  const escaped = prefix.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '([^/]+)')
+  return new RegExp(`^${escaped}`)
+}
+
+function stemOf(path: string) {
+  const name = path.split('/').pop() ?? path
+  return name.replace(/\.[^.]+$/, '').replace(/[._-](spec|test)$/, '')
+}
+
+/** Test files a path names: same stem, plus the prefixes the rules map it to. */
+function guessTests(path: string, testFiles: string[], rules: HeuristicRule[]) {
+  const stem = stemOf(path)
+  const prefixes = rules.flatMap((rule) => {
+    const match = rulePattern(rule.from).exec(path)
+    if (!match) return []
+    let index = 1
+    return [rule.to.replace(/\*/g, () => match[index++] ?? '*')]
+  })
+  return testFiles.filter(
+    (file) => stemOf(file) === stem || prefixes.some((prefix) => file.startsWith(prefix))
+  )
 }
 
 /**
- * Why `filesAffectedBy` could not answer, worded as what to do about it.
- * `undefined` when it can.
+ * Pick the test files a set of changed paths can affect.
+ *
+ * A path reached through a test's imports (or a resolver) selects exactly those tests.
+ * A path only boot code reaches, or one nothing reaches, runs the full suite, unless
+ * the heuristic is on and can name tests for an unreached path. Running too much is
+ * safe and running too little is not, so every doubt widens the run.
  */
-export function explainChangedFallback(map: DependencyMap, changed: string[]) {
+export function selectChanged(map: DependencyMap, changed: string[]): ChangedSelection {
   if (!Object.keys(map.files).length) {
-    return 'no dependency map yet. Run once with --prepare-caches (or a full run).'
+    return {
+      kind: 'full',
+      reason: 'no dependency map yet. Run once with --prepare-caches (or a full run).',
+    }
   }
   if (map.complete !== true) {
-    return `the dependency map is incomplete. ${RECORD_EARLY_HINT}`
+    return { kind: 'full', reason: `the dependency map is incomplete. ${RECORD_EARLY_HINT}` }
   }
-  if (!changed.length) return 'no changed paths were found.'
-  const known = new Set<string>()
+  const wanted = [...new Set(changed.map((path) => path.split('\\').join('/')))]
+  if (!wanted.length) return { kind: 'full', reason: 'no changed paths were found.' }
+
+  const reachedBy = new Map<string, string[]>()
   for (const [testFile, dependencies] of Object.entries(map.files)) {
-    known.add(testFile)
-    for (const dependency of dependencies) known.add(dependency)
+    for (const path of [testFile, ...dependencies]) {
+      const tests = reachedBy.get(path)
+      if (tests) tests.push(testFile)
+      else reachedBy.set(path, [testFile])
+    }
   }
-  const unknown = changed.filter((path) => !known.has(path.split('\\').join('/')))
-  if (!unknown.length) return undefined
-  const sample = unknown.slice(0, 3).join(', ')
-  return (
-    `${unknown.length} changed path(s) no test file imports (${sample}${unknown.length > 3 ? ', ...' : ''}). ` +
-    'Configs, new modules and files loaded lazily (routes, controllers) are not in the map; ' +
-    'a new test file needs --prepare-caches.'
-  )
+
+  const selected = new Set<string>()
+  const unreached: string[] = []
+  for (const path of wanted) {
+    const tests = reachedBy.get(path)
+    if (tests) tests.forEach((file) => selected.add(file))
+    else unreached.push(path)
+  }
+  if (!unreached.length) return { kind: 'exact', files: [...selected] }
+
+  const boot = new Set(map.boot)
+  const atBoot = unreached.filter((path) => boot.has(path))
+  if (atBoot.length) {
+    return {
+      kind: 'full',
+      reason:
+        `${atBoot.length} changed path(s) are loaded at boot and reached by no test's imports ` +
+        `(${sampleOf(atBoot)}), so any test can depend on them.`,
+    }
+  }
+
+  const unplaced = map.heuristic
+    ? unreached.filter((path) => {
+        const guesses = guessTests(path, Object.keys(map.files), map.heuristic!)
+        guesses.forEach((file) => selected.add(file))
+        return !guesses.length
+      })
+    : unreached
+  if (unplaced.length) {
+    return {
+      kind: 'full',
+      reason:
+        `${unplaced.length} changed path(s) no test file imports (${sampleOf(unplaced)}). ` +
+        'Files loaded lazily (controllers, jobs) need a selection resolver; ' +
+        'a new test file needs --prepare-caches.',
+    }
+  }
+  return { kind: 'heuristic', files: [...selected], guessed: unreached }
 }
 
 function registerResolveHook(): ImportEdges | undefined {
@@ -183,19 +277,46 @@ export async function gitChangedPaths(cwd: string, ignored: string[] = []): Prom
   }
 }
 
+const emptyMap = (): DependencyMap => ({
+  version: 2,
+  complete: false,
+  files: Object.create(null),
+  boot: [],
+})
+
+const isStrings = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === 'string')
+
+const isRules = (value: unknown): value is HeuristicRule[] =>
+  Array.isArray(value) &&
+  value.every(
+    (rule) =>
+      rule &&
+      typeof (rule as HeuristicRule).from === 'string' &&
+      typeof (rule as HeuristicRule).to === 'string'
+  )
+
+/** Version 1 maps walked through packages and selected every test; they are discarded. */
 export function parseDependencyMap(value: unknown): DependencyMap {
-  const empty = (): DependencyMap => ({ version: 1, complete: false, files: Object.create(null) })
-  if (!value || typeof value !== 'object' || (value as DependencyMap).version !== 1) return empty()
-  const files = (value as DependencyMap).files
-  if (!files || typeof files !== 'object' || Array.isArray(files)) return empty()
+  if (!value || typeof value !== 'object' || (value as DependencyMap).version !== 2) {
+    return emptyMap()
+  }
+  const { files, boot, heuristic, complete } = value as DependencyMap
+  if (!files || typeof files !== 'object' || Array.isArray(files) || !isStrings(boot)) {
+    return emptyMap()
+  }
   const parsed: Record<string, string[]> = Object.create(null)
   for (const [key, dependencies] of Object.entries(files)) {
-    if (!Array.isArray(dependencies) || !dependencies.every((item) => typeof item === 'string')) {
-      return empty()
-    }
+    if (!isStrings(dependencies)) return emptyMap()
     parsed[key] = dependencies
   }
-  return { version: 1, complete: (value as DependencyMap).complete === true, files: parsed }
+  return {
+    version: 2,
+    complete: complete === true,
+    files: parsed,
+    boot,
+    ...(isRules(heuristic) ? { heuristic } : {}),
+  }
 }
 
 export async function readDependencyMap(file: string): Promise<DependencyMap> {
@@ -203,40 +324,46 @@ export async function readDependencyMap(file: string): Promise<DependencyMap> {
     return parseDependencyMap(JSON.parse(await readFile(file, 'utf8')))
   } catch (error) {
     debug('ignoring unavailable dependency map %s: %O', file, error)
-    return { version: 1, complete: false, files: Object.create(null) }
+    return emptyMap()
   }
 }
 
-/**
- * Pick the test files affected by a set of changed paths.
- *
- * Returns `undefined` when the answer cannot be trusted — no map, or a changed
- * path that no test file is known to import. The caller then runs everything,
- * because running too much is safe and running too little is not.
- */
-export function filesAffectedBy(map: DependencyMap, changed: string[]): string[] | undefined {
-  const wanted = new Set(changed.map((path) => path.split('\\').join('/')))
-  if (map.complete !== true || !wanted.size || !Object.keys(map.files).length) return undefined
+const isPackageUrl = (url: string) => url.includes('/node_modules/')
 
-  const matches = new Set<string>()
-  for (const [testFile, dependencies] of Object.entries(map.files)) {
-    if (wanted.has(testFile) || dependencies.some((dependency) => wanted.has(dependency))) {
-      matches.add(testFile)
+/** Project files reachable from `roots` without walking through a package. */
+function projectClosure(edges: ImportEdges, roots: Iterable<string>) {
+  const visited = new Set<string>()
+  const queue = [...roots]
+  while (queue.length) {
+    const current = queue.pop()!
+    if (visited.has(current) || isPackageUrl(current)) continue
+    visited.add(current)
+    for (const next of edges.get(current) ?? []) {
+      if (!visited.has(next)) queue.push(next)
     }
   }
+  return visited
+}
 
-  // A changed file nobody imports (a new module, a config, an untracked file)
-  // means the map is incomplete for this change, so fall back to the full run.
-  const known = new Set<string>()
-  for (const [testFile, dependencies] of Object.entries(map.files)) {
-    known.add(testFile)
-    for (const dependency of dependencies) known.add(dependency)
+/**
+ * Project files a package or the entry script loaded so far. Called before the first
+ * test file is imported, this is what the framework loaded at boot.
+ */
+function bootRoots(edges: ImportEdges, cwd: string) {
+  const entry = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : undefined
+  const project = pathToFileURL(`${cwd}/`).href
+  const roots = new Set<string>()
+  for (const [parent, children] of edges) {
+    if (!isPackageUrl(parent) && parent !== entry) continue
+    for (const child of children) {
+      if (child.startsWith(project) && !isPackageUrl(child)) roots.add(child)
+    }
   }
-  for (const path of wanted) {
-    if (!known.has(path)) return undefined
-  }
+  return roots
+}
 
-  return [...matches]
+function toFileUrl(cwd: string, path: string) {
+  return path.startsWith('file:') ? path : pathToFileURL(resolve(cwd, path)).href
 }
 
 /** Record each test file's transitive imports for `--changed`. */
@@ -263,11 +390,18 @@ export function recordDependencies(options: { file?: string; dir?: string } = {}
         !filters?.shard)
     let importFailed = false
     let graphComplete = true
+    let boot: Set<string> | undefined
+    const resolvers = config.selection?.resolvers ?? []
+    const heuristic = config.selection?.heuristic
+    const toPath = (url: string) => relative(cwd, fileURLToPath(url)).split('\\').join('/')
+    const inProject = (path: string) => !path.startsWith('..') && !path.includes('node_modules')
 
     // Edges are importer -> imported, walked from each test file below. Load
     // events alone would miss shared modules, which ESM loads only once.
     const importer = config.importer
     config.importer = async (fileURL) => {
+      // Everything loaded so far is boot code; later lazy loads are not.
+      boot ??= projectClosure(edges, bootRoots(edges, cwd))
       testFiles.add(relative(cwd, fileURLToPath(fileURL)).split('\\').join('/'))
       try {
         return await importer(fileURL)
@@ -277,29 +411,43 @@ export function recordDependencies(options: { file?: string; dir?: string } = {}
       }
     }
 
+    /**
+     * Files a resolver names are often loaded only on demand (a controller behind a
+     * route), so `--prepare-caches` never sees their imports. Importing them here
+     * records those edges; a file that fails to import still counts as a dependency.
+     */
+    const unloadable = new Set<string>()
+    const resolveExtra = async (testFile: string) => {
+      const urls: string[] = []
+      for (const resolver of resolvers) {
+        try {
+          for (const path of await resolver(testFile)) urls.push(toFileUrl(cwd, path))
+        } catch (error) {
+          debug('selection resolver failed for %s: %O', testFile, error)
+        }
+      }
+      for (const url of urls) {
+        if (!edges.has(url)) await import(url).catch(() => unloadable.add(toPath(url)))
+      }
+      return urls
+    }
+
     const write = async () => {
       if (!testFiles.size) return
       for (const testFile of testFiles) {
         const root = pathToFileURL(join(cwd, testFile)).href
-        const visited = new Set<string>()
-        const queue = [root]
-        while (queue.length) {
-          const current = queue.pop()!
-          if (visited.has(current)) continue
-          visited.add(current)
-          for (const next of edges.get(current) ?? []) {
-            if (!visited.has(next)) queue.push(next)
-          }
-        }
-
+        const reached = projectClosure(edges, [root, ...(await resolveExtra(testFile))])
         const project = new Set(map.files[testFile] ?? [])
-        for (const url of visited) {
-          const path = relative(cwd, fileURLToPath(url)).split('\\').join('/')
-          if (path.startsWith('..') || path.includes('node_modules')) continue
-          project.add(path)
+        for (const url of reached) {
+          const path = toPath(url)
+          if (inProject(path)) project.add(path)
         }
         map.files[testFile] = [...project].sort()
       }
+      const testFileSet = new Set(testFiles)
+      const bootFiles = [...(boot ?? [])]
+        .map(toPath)
+        .filter((path) => inProject(path) && !testFileSet.has(path))
 
       const unrecorded = new Set<string>()
       if (completeRun && !importFailed) {
@@ -310,7 +458,8 @@ export function recordDependencies(options: { file?: string; dir?: string } = {}
             if (!recorded) unrecorded.add(testFile)
           }
           for (const dependency of map.files[testFile] ?? []) {
-            if (dependency === testFile || unrecorded.has(dependency)) continue
+            if (dependency === testFile || unrecorded.has(dependency) || unloadable.has(dependency))
+              continue
             const url = pathToFileURL(join(cwd, dependency)).href
             if (
               (edges.get(url)?.size ?? 0) === 0 &&
@@ -344,6 +493,13 @@ export function recordDependencies(options: { file?: string; dir?: string } = {}
           }
           latest.complete =
             latest.complete === true || (completeRun && !importFailed && graphComplete)
+          // A complete run saw the whole boot; a slice can only add to it.
+          latest.boot =
+            completeRun && !importFailed
+              ? bootFiles.sort()
+              : [...new Set([...latest.boot, ...bootFiles])].sort()
+          if (heuristic) latest.heuristic = heuristic === true ? [] : heuristic
+          else delete latest.heuristic
           const temporary = `${target}.${process.pid}.tmp`
           await mkdir(resolve(target, '..'), { recursive: true })
           await writeFile(temporary, `${JSON.stringify(latest)}\n`)
@@ -393,20 +549,27 @@ export function changedSelection(options: { file?: string; dir?: string } = {}):
             .split(',')
             .map((path) => path.trim())
             .filter(Boolean)
-    const affected = filesAffectedBy(map, changed)
-    if (!affected) {
-      const reason = explainChangedFallback(map, changed) ?? 'the dependency map cannot answer.'
-      const why =
-        hookUnavailable && !processEdges
-          ? 'this Node has no module.registerHooks (22.15+ or 23.5+ needed).'
-          : reason
-      fallbackReasons.set(config, why)
-      warn(`--changed is running the full suite: ${why}`)
+    let outcome = selectChanged(map, changed)
+    if (outcome.kind === 'full' && hookUnavailable && !processEdges) {
+      outcome = {
+        kind: 'full',
+        reason: 'this Node has no module.registerHooks (22.15+ or 23.5+ needed).',
+      }
+    }
+    outcomes.set(config, outcome)
+    if (outcome.kind === 'full') {
+      warn(`--changed is running the full suite: ${outcome.reason}`)
       return
     }
+    if (outcome.kind === 'heuristic') {
+      warn(
+        `--changed guessed tests by name for ${outcome.guessed.length} path(s) no test imports ` +
+          `(${sampleOf(outcome.guessed)}). Run the full suite before relying on it.`
+      )
+    }
     // The map names the complete set of known test files, so restricting to the
-    // affected ones is safe. A brand-new, unrecorded test file would be missed,
+    // selected ones is safe. A brand-new, unrecorded test file would be missed,
     // which is why the map is only used after a full recorded run.
-    setSelectionPlan(config, { only: Object.freeze(affected) })
+    setSelectionPlan(config, { only: Object.freeze(outcome.files) })
   }
 }

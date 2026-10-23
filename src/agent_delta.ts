@@ -22,6 +22,8 @@ export type AgentSelection = {
   signature?: string
   fallback?: boolean
   fallbackReason?: string
+  heuristic?: boolean
+  guessed?: string[]
 }
 
 export type AgentSummary = {
