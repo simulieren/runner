@@ -134,12 +134,6 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
               exitCode: 130,
               error: 'Cancelled',
             } satisfies ParallelResult['workers'][number]
-          if (aborted)
-            return Promise.resolve<ParallelResult['workers'][number]>({
-              worker,
-              exitCode: 130,
-              error: 'Cancelled',
-            })
           return new Promise<ParallelResult['workers'][number]>((done) => {
             let child: ChildProcess
             try {
