@@ -73,6 +73,25 @@ function shrinkLine(record: Record<string, unknown>) {
   for (const key of ['status', 'file', 'group', 'title', 'suite', 'durationMs']) {
     if (record[key] !== undefined) minimal[key] = record[key]
   }
+  if (record.event === 'summary') {
+    for (const key of [
+      'total',
+      'passed',
+      'failed',
+      'skipped',
+      'todo',
+      'regression',
+      'ok',
+      'knownOnly',
+      'nonTestErrors',
+      'selection',
+      'phases',
+      'baseline',
+    ]) {
+      if (record[key] !== undefined) minimal[key] = record[key]
+    }
+    if (Array.isArray(record.errorGroups)) minimal.errorGroups = record.errorGroups.slice(0, 10)
+  }
   const first = Array.isArray(record.errors) ? record.errors[0] : undefined
   if (first !== undefined) {
     if (first && typeof first === 'object') {
@@ -104,7 +123,17 @@ function shrinkLine(record: Record<string, unknown>) {
     line = JSON.stringify(minimal)
   }
   if (line.length > MAX_LINE_CHARS) {
-    line = JSON.stringify({ event: record.event, truncated: true })
+    if (record.event === 'summary') {
+      line = JSON.stringify({
+        event: 'summary',
+        total: record.total,
+        failed: record.failed,
+        ok: record.ok,
+        truncated: true,
+      })
+    } else {
+      line = JSON.stringify({ event: record.event, truncated: true })
+    }
   }
   return line
 }

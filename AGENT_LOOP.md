@@ -56,6 +56,10 @@ One JSON object per line, keyed by `event`:
 `comparable` flag, plus `agent-metrics.jsonl` in the cache directory. Summarise
 the loop with `japa-agent --report`.
 
+With `--allow-known-failures`, a summary may include `"knownOnly": true`. The
+`ok` field still describes the raw test result; `knownOnly` says the run is green
+because every failure was already in the baseline and no setup error occurred.
+
 ## AdonisJS
 
 AdonisJS already runs Japa through `Ignitor.testRunner()` in `bin/test.ts`, so no
