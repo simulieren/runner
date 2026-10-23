@@ -241,6 +241,7 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
   const failed = await getFailedTests(cwd).catch(() => ({}) as { tests?: string[] })
   const only = await changedFiles(cwd, options.args ?? [])
   const agentReport = optionValue(options.args ?? [], '--agent-file')
+  if (agentReport) await writeFile(resolve(cwd, agentReport), '').catch(() => {})
   const runId = randomUUID()
   // Evaluate environment callbacks before spawning anything, so a configuration
   // error cannot leave a partially launched pool behind.

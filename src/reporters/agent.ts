@@ -251,6 +251,9 @@ export class AgentReporter extends BaseReporter {
   }
 
   protected async end() {
+    // Let late unhandled rejections from runner:end listeners set the process
+    // exit code before the final summary is written.
+    await new Promise((done) => setImmediate(done))
     const summary = this.runner!.getSummary()
     const context = getAgentContext(this.runner!)
     const repeats = [...this.#seen.entries()].filter(([, count]) => count > 1)
