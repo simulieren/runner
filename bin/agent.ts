@@ -258,7 +258,9 @@ async function main() {
   // A crash before the reporter starts must not turn the previous report into
   // this run's result.
   await writeFile(reportPath, '').catch(() => {})
-  const runArgs = [...args, ...cacheArgs, '--agent']
+  // --agent-file without --agent keeps the app's own reporters (result files,
+  // guards) running. Pass --agent in the command to get JSON on stdout too.
+  const runArgs = [...args, ...cacheArgs]
   if (!explicitReport) runArgs.push(`--agent-file=${reportPath}`)
   if (!options.full && !selectionGiven) runArgs.push('--changed=auto')
 

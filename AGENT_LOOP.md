@@ -34,9 +34,12 @@ npx japa-parallel --workers=auto -- node --import=@poppinss/ts-exec bin/test.ts
 | `--update-baseline` | Record this run's failures. Only a full run writes. |
 | `--failed-new` | With `--failed`, skip titles already in the baseline. |
 | `--workers=auto` | Coordinator flag (`japa-parallel`): use one worker for narrow selections. |
+| `JAPA_WORKERS=4` | Same as `--workers` for `japa-parallel`; the flag wins when both are set. |
 
 `japa-agent` accepts `--cwd`, `--out`, `--cache-dir`, `--full`, `--no-prepare`,
 `--timeout`, `--report` and `--no-metrics`.
+It writes the report with `--agent-file`, so the command's configured reporters still
+run; add `--agent` to the command to also print the JSON on stdout.
 
 `--update-baseline` does not delete entries that stop failing. They stay in the
 file with `consecutive: 0`, so `--allow-known-failures` still recognises them if

@@ -8,11 +8,19 @@ async function main() {
   const options = separator < 0 ? cliArguments : cliArguments.slice(0, separator)
   if (separator < 0 || options.includes('--help')) {
     console.log(
-      'Usage: japa-parallel [--workers=4|auto] [--history=path] [--cwd=path] -- node bin/test.js unit'
+      'Usage: [JAPA_WORKERS=4|auto] japa-parallel [--workers=4|auto] [--history=path] [--cwd=path] -- node bin/test.js unit'
     )
     return options.includes('--help') ? 0 : 1
   }
-  let workers: number | 'auto' | undefined
+  // JAPA_WORKERS lets a package script fix the count: arguments after `npm run x --`
+  // land after the `--` separator and reach the test command, not the coordinator.
+  const fromEnv = process.env.JAPA_WORKERS
+  let workers: number | 'auto' | undefined =
+    fromEnv === undefined || fromEnv === ''
+      ? undefined
+      : fromEnv === 'auto'
+        ? 'auto'
+        : Number(fromEnv)
   let historyFile: string | undefined
   let cwd: string | undefined
   for (let index = 0; index < options.length; index++) {
