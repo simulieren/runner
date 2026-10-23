@@ -1,0 +1,19 @@
+--- a/apps/web/tests/modules/ai-foundation/unit/services/adapters/fal_job_control.spec.ts
++++ b/apps/web/tests/modules/ai-foundation/unit/services/adapters/fal_job_control.spec.ts
+@@ -222,11 +222,14 @@
+           signal?.addEventListener('abort', () => reject(signal.reason))
+         })
+     )
++    // [experiment] JAPA_EXPERIMENT_SHORT_TIMEOUTS=1 aborts after 50 ms; the abort path is the same.
++    const callTimeoutMs = process.env.JAPA_EXPERIMENT_SHORT_TIMEOUTS === '1' ? 50 : 1_500
+     const started = Date.now()
+ 
+-    const verdict = await new FalJobControl({ callTimeoutMs: 1_500 }).inspect(falJob(), 'fal-key')
++    const verdict = await new FalJobControl({ callTimeoutMs }).inspect(falJob(), 'fal-key')
+ 
+-    assert.isBelow(Date.now() - started, 2_500)
++    assert.isAtLeast(Date.now() - started, callTimeoutMs)
++    assert.isBelow(Date.now() - started, callTimeoutMs + 1_000)
+     assert.containsSubset(verdict, { kind: 'unreachable', reason: 'network' })
+   })
+ 

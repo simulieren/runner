@@ -898,7 +898,7 @@ test.describe('Automatic duration history and worker coordination', () => {
     }
     const failed = await runParallel({ ...options, env: { TEST_FAIL: '1' } })
     assert.notEqual(failed.exitCode, 0)
-    assert.isFalse(failed.historyUpdated)
+    assert.isTrue(failed.historyUpdated)
     const cached = await getFailedTests(cwd)
     assert.deepEqual(cached.tests?.sort(), ['case 0', 'case 1'])
     const rerun = await runParallel({ ...options, args: [...options.args, '--failed'] })
@@ -954,7 +954,79 @@ test.describe('Automatic duration history and worker coordination', () => {
     )
   })
 
-  test('leave the cache unchanged on test failure and reject missing or tampered coordination', async (context) => {
+  test('narrow imported files by title filter without changing the selection', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { readFile, writeFile } = await import('node:fs/promises')
+    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
+    const run = async (args: string[], env: NodeJS.ProcessEnv = {}) => {
+      const { execFile } = await import('node:child_process')
+      const { promisify } = await import('node:util')
+      await promisify(execFile)(process.execPath, [`--import=${loader}`, entry, ...args], {
+        cwd,
+        env: { ...process.env, TEST_OBSERVED: `${cwd}/observed-serial.json`, ...env },
+      }).catch(() => {})
+      return JSON.parse(await readFile(`${cwd}/observed-serial.json`, 'utf8'))
+    }
+
+    // Build the index from an unfiltered run, then filter by title.
+    await run([])
+    const filtered = await run(['--tests=case 3'])
+    assert.deepEqual(filtered.executed, [3])
+    assert.deepEqual(filtered.imported, ['file3.spec.ts'])
+
+    // Disabling the index must select the same tests, importing every file.
+    const unfiltered = await run(['--tests=case 3'], { JAPA_NO_SELECTION_INDEX: '1' })
+    assert.deepEqual(unfiltered.executed, [3])
+    assert.lengthOf(unfiltered.imported, 6)
+
+    // A file that changed since indexing is always imported.
+    await writeFile(`${cwd}/file5.spec.ts`, '// changed\n')
+    const changed = await run(['--tests=case 3'])
+    assert.deepEqual(changed.executed, [3])
+    assert.sameMembers(changed.imported, ['file3.spec.ts', 'file5.spec.ts'])
+  })
+
+  test('learn passing files from a failing run and keep estimates of failing files', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { runParallel } = await import('../src/parallel.js')
+    const { readHistory, writeHistory } = await import('../src/duration_history.js')
+    const stale = {
+      'default:file0.spec.ts': 5000,
+      'default:file1.spec.ts': 5000,
+      'default:file2.spec.ts': 5000,
+    }
+    await writeHistory(`${cwd}/history.json`, { version: 1, cwd, durations: stale })
+    const options = {
+      command: process.execPath,
+      args: [`--import=${loader}`, entry],
+      cwd,
+      workers: 2,
+      historyFile: 'history.json',
+      stdio: 'ignore' as const,
+    }
+    const parallel = await runParallel({ ...options, env: { TEST_FAIL: '1' } })
+    assert.notEqual(parallel.exitCode, 0)
+    assert.isTrue(parallel.historyUpdated)
+    const learned = await readHistory(`${cwd}/history.json`, cwd, true)
+    assert.equal(learned.durations['default:file0.spec.ts'], 5000)
+    assert.equal(learned.durations['default:file1.spec.ts'], 5000)
+    assert.isBelow(learned.durations['default:file2.spec.ts'], 5000)
+    assert.isAbove(learned.durations['default:file2.spec.ts'], 0)
+    assert.lengthOf(Object.keys(learned.durations), 6)
+
+    await writeHistory(`${cwd}/history.json`, { version: 1, cwd, durations: stale })
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    await promisify(execFile)(process.execPath, [`--import=${loader}`, entry], {
+      cwd,
+      env: { ...process.env, TEST_FAIL: '1' },
+    }).catch(() => {})
+    const serialLearned = await readHistory(`${cwd}/history.json`, cwd, true)
+    assert.equal(serialLearned.durations['default:file0.spec.ts'], 5000)
+    assert.isBelow(serialLearned.durations['default:file2.spec.ts'], 5000)
+  })
+
+  test('leave the cache unchanged on hook failure and reject missing or tampered coordination', async (context) => {
     const { cwd, entry, loader } = await fixture(context)
     const { runParallel } = await import('../src/parallel.js')
     const { readFile, readdir } = await import('node:fs/promises')
@@ -969,7 +1041,7 @@ test.describe('Automatic duration history and worker coordination', () => {
       stdio: 'ignore' as const,
     }
     for (const env of [
-      { TEST_FAIL: '1' },
+      { TEST_HOOK_FAIL: '1' },
       { TEST_NO_HISTORY: '1' },
       { TEST_TAMPER: '1' },
       { TEST_DUPLICATE_OUTPUT: '1' },
@@ -984,6 +1056,302 @@ test.describe('Automatic duration history and worker coordination', () => {
         []
       )
     }
+  })
+
+  test('run only files affected by changed paths, and fall back when unsure', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { readFile, writeFile } = await import('node:fs/promises')
+    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
+    const run = async (args: string[]) => {
+      const { execFile } = await import('node:child_process')
+      const { promisify } = await import('node:util')
+      await promisify(execFile)(process.execPath, [`--import=${loader}`, entry, ...args], {
+        cwd,
+        env: { ...process.env, TEST_OBSERVED: `${cwd}/observed-serial.json` },
+      }).catch(() => {})
+      return JSON.parse(await readFile(`${cwd}/observed-serial.json`, 'utf8'))
+    }
+
+    // Any full run records dependencies for the next one.
+    await run([])
+    const depsRaw = await readFile(
+      `${cwd}/node_modules/.cache/japa/dependencies.json`,
+      'utf8'
+    ).catch(() => 'MISSING')
+    const deps = JSON.parse(depsRaw)
+    assert.equal(Object.keys(deps.files).length, 6, depsRaw.slice(0, 400))
+
+    // A changed test file selects itself.
+    const changed = await run(['--changed=file1.spec.ts'])
+    assert.deepEqual(changed.executed, [1])
+
+    // A path nothing imports falls back to the full suite.
+    const unknown = await run(['--changed=an/unseen/module.ts'])
+    assert.deepEqual(
+      unknown.executed.sort((a: number, b: number) => a - b),
+      [0, 1, 2, 3, 4, 5]
+    )
+  })
+
+  test('prepare builds the caches without executing tests', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { readFile, readdir, writeFile } = await import('node:fs/promises')
+    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    await promisify(execFile)(process.execPath, [`--import=${loader}`, entry, '--prepare'], {
+      cwd,
+      env: { ...process.env, TEST_OBSERVED: `${cwd}/observed-serial.json` },
+    })
+
+    const observed = JSON.parse(await readFile(`${cwd}/observed-serial.json`, 'utf8'))
+    assert.deepEqual(observed.executed, [])
+    assert.lengthOf(observed.imported, 6)
+
+    const cache = await readdir(`${cwd}/node_modules/.cache/japa`)
+    const indexFiles = cache.filter((name) => name.startsWith('index-'))
+    assert.lengthOf(indexFiles, 1)
+    assert.isTrue(cache.includes('dependencies.json'))
+  })
+
+  test('--failed-new skips failures recorded in the baseline', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { readFile, writeFile } = await import('node:fs/promises')
+    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
+    const run = async (args: string[], env: NodeJS.ProcessEnv = {}) => {
+      const { execFile } = await import('node:child_process')
+      const { promisify } = await import('node:util')
+      await promisify(execFile)(process.execPath, [`--import=${loader}`, entry, ...args], {
+        cwd,
+        env: { ...process.env, TEST_OBSERVED: `${cwd}/observed-serial.json`, ...env },
+      }).catch(() => {})
+      return JSON.parse(await readFile(`${cwd}/observed-serial.json`, 'utf8'))
+    }
+
+    // Populate the failed-test cache with the two fixture failures.
+    await run([], { TEST_FAIL: '1' })
+    await writeFile(
+      `${cwd}/japa.baseline.json`,
+      JSON.stringify({
+        version: 1,
+        failures: [
+          { suite: 'default', file: 'file0.spec.ts', title: 'case 0' },
+          { suite: 'default', file: 'file1.spec.ts', title: 'case 1' },
+        ],
+      })
+    )
+
+    const allFailures = await run(['--failed'], { TEST_FAIL: '1' })
+    assert.deepEqual(allFailures.executed.sort(), [0, 1])
+
+    const newOnly = await run(['--failed', '--failed-new'], { TEST_FAIL: '1' })
+    assert.lengthOf(newOnly.executed, 6)
+  })
+
+  test('write agent results to a file and reserve exit 2 for setup errors', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { readFile, writeFile } = await import('node:fs/promises')
+    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    const run = (args: string[], env: NodeJS.ProcessEnv = {}) =>
+      promisify(execFile)(process.execPath, [`--import=${loader}`, entry, ...args], {
+        cwd,
+        env: { ...process.env, ...env },
+      }).then(
+        (result) => ({ code: 0, stdout: result.stdout }),
+        (error: { code?: number; stdout?: string }) => ({
+          code: error.code ?? 1,
+          stdout: error.stdout ?? '',
+        })
+      )
+
+    const reported = await run(['--agent', '--agent-file=report.jsonl'], { TEST_FAIL: '1' })
+    assert.equal(reported.code, 1)
+    assert.equal(reported.stdout.includes('"t":"test"'), false)
+    const raw = await readFile(`${cwd}/report.jsonl`, 'utf8')
+    const lines = raw
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    assert.equal(lines.at(-1).t, 'summary')
+    assert.isAbove(lines.at(-1).selection.planned, 0)
+
+    // An invalid shard fails during planning, which is an infrastructure error.
+    const broken = await run(['--agent', '--shard=9/2'])
+    assert.equal(broken.code, 2)
+  })
+
+  test('record source dependencies of an imported test file', async (context) => {
+    const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises')
+    const { pathToFileURL, fileURLToPath } = await import('node:url')
+    const cwd = await mkdtemp(fileURLToPath(new URL('../.deps-', import.meta.url)))
+    context.after(() => rm(cwd, { recursive: true, force: true }))
+    await writeFile(`${cwd}/helper.mjs`, 'export const marker = 1\n')
+    await writeFile(
+      `${cwd}/thing.spec.mjs`,
+      "import { marker } from './helper.mjs'\nexport default marker\n"
+    )
+
+    const { recordDependencies, dependencyFile } = await import('../src/dependencies.js')
+    const listeners = new Map<string, (payload?: unknown) => boolean | void>()
+    const emitter = {
+      on: (name: string, fn: (payload?: unknown) => boolean | void) => {
+        listeners.set(name, fn)
+        return () => listeners.delete(name)
+      },
+      once: (name: string, fn: (payload?: unknown) => boolean | void) => {
+        listeners.set(name, fn)
+      },
+    }
+    const config = {
+      cwd,
+      importer: async (url: URL) => {
+        await import(url.href)
+      },
+    }
+    await recordDependencies()({
+      config,
+      emitter,
+    } as never)
+
+    await config.importer(pathToFileURL(`${cwd}/thing.spec.mjs`))
+    listeners.get('runner:end')?.()
+    await new Promise((done) => setTimeout(done, 100))
+
+    const map = JSON.parse(await readFile(dependencyFile(cwd), 'utf8'))
+    assert.deepEqual(map.files['thing.spec.mjs'], ['helper.mjs', 'thing.spec.mjs'])
+  })
+
+  test('record a complete entry for every imported file, filtered or not', async (context) => {
+    const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises')
+    const { fileURLToPath } = await import('node:url')
+    const cwd = await mkdtemp(fileURLToPath(new URL('../.index-', import.meta.url)))
+    context.after(() => rm(cwd, { recursive: true, force: true }))
+    await writeFile(`${cwd}/file.spec.ts`, '')
+
+    const { writeSelectionIndexFor, indexFile } = await import('../src/selection_index.js')
+    // Importing registers every test in the file, whatever the filter is.
+    const registered = {
+      suites: [
+        {
+          name: 'default',
+          stack: [
+            {
+              title: 'group',
+              tests: [
+                {
+                  options: {
+                    title: 'the title',
+                    tags: [],
+                    meta: { fileName: `${cwd}/file.spec.ts`, group: { title: 'group' } },
+                  },
+                },
+                {
+                  options: {
+                    title: 'the other title',
+                    tags: [],
+                    meta: { fileName: `${cwd}/file.spec.ts`, group: { title: 'group' } },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    await writeSelectionIndexFor(registered as never, cwd)
+    const index = JSON.parse(await readFile(indexFile(cwd), 'utf8'))
+    assert.deepEqual(index.files['file.spec.ts'].tests, ['the title', 'the other title'])
+    assert.deepEqual(index.files['file.spec.ts'].groups, ['group'])
+  })
+
+  test('stagger worker startup without changing the plan or the results', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { readFile } = await import('node:fs/promises')
+    const { runParallel } = await import('../src/parallel.js')
+    const options = {
+      command: process.execPath,
+      args: [`--import=${loader}`, entry],
+      cwd,
+      workers: 3,
+      historyFile: 'history.json',
+      stdio: 'ignore' as const,
+      startStaggerMs: 250,
+    }
+    const result = await runParallel(options)
+    assert.equal(result.exitCode, 0)
+
+    const started = await Promise.all(
+      [1, 2, 3].map((worker) => readFile(`${cwd}/started-${worker}.json`, 'utf8').then(JSON.parse))
+    )
+    const times = started.map((row) => row.startedAt as number).sort((a, b) => a - b)
+    assert.isAtLeast(times[2] - times[0], 300)
+
+    // Every file still runs exactly once, in the same round-robin order.
+    const observed = await Promise.all(
+      [1, 2, 3].map((worker) => readFile(`${cwd}/observed-${worker}.json`, 'utf8').then(JSON.parse))
+    )
+    assert.deepEqual(
+      observed.flatMap((row) => row.executed).sort((a: number, b: number) => a - b),
+      [0, 1, 2, 3, 4, 5]
+    )
+  })
+
+  test('compare failures against a baseline and report agent-readable results', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { writeFile, readFile } = await import('node:fs/promises')
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
+    const run = async (
+      args: string[],
+      env: NodeJS.ProcessEnv = {}
+    ): Promise<{ code: number; stdout: string }> => {
+      try {
+        const result = await promisify(execFile)(
+          process.execPath,
+          [`--import=${loader}`, entry, ...args],
+          {
+            cwd,
+            env: { ...process.env, TEST_OBSERVED: `${cwd}/observed-serial.json`, ...env },
+          }
+        )
+        return { code: 0, stdout: result.stdout }
+      } catch (error) {
+        const failed = error as { code?: number; stdout?: string }
+        return { code: failed.code ?? 1, stdout: failed.stdout ?? '' }
+      }
+    }
+
+    // No baseline: the failing run stays red.
+    const red = await run(['--agent'], { TEST_FAIL: '1' })
+    assert.equal(red.code, 1)
+    const lines = String(red.stdout)
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    const failed = lines.filter((line) => line.t === 'test' && line.status === 'failed')
+    assert.lengthOf(failed, 2)
+    assert.include(failed[0].file, 'file0.spec.ts')
+    assert.match(failed[0].errors[0].message, /Expected fixture failure/)
+    assert.deepEqual(lines.at(-1).t, 'summary')
+    assert.equal(lines.at(-1).ok, false)
+
+    // Record those failures, then the same run is accepted as known.
+    await run(['--update-baseline'], { TEST_FAIL: '1' })
+    const baseline = JSON.parse(await readFile(`${cwd}/japa.baseline.json`, 'utf8'))
+    assert.equal(baseline.failures.length, 2)
+    assert.equal(baseline.failures[0].file, 'file0.spec.ts')
+
+    const known = await run(['--allow-known-failures'], { TEST_FAIL: '1' })
+    assert.equal(known.code, 0)
+
+    // A test that fails for a different reason has a different identity, so it
+    // is a regression even though the title matches nothing in the baseline.
+    await writeFile(`${cwd}/japa.baseline.json`, JSON.stringify({ version: 1, failures: [] }))
+    const different = await run(['--allow-known-failures'], { TEST_FAIL: '1' })
+    assert.equal(different.code, 1)
   })
 
   test('propagate spawn errors and cancellation without leaving workers running', async (context) => {

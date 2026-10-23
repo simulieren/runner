@@ -8,6 +8,7 @@
  */
 
 import type { BaseReporterOptions, NamedReporterContract } from '../types.js'
+import type { AgentReporterOptions } from './agent.js'
 
 /**
  * Create an instance of the spec reporter
@@ -44,6 +45,20 @@ export const ndjson: (options?: BaseReporterOptions) => NamedReporterContract = 
     handler: async (...args) => {
       const { NdJSONReporter } = await import('./ndjson.js')
       new NdJSONReporter(options).boot(...args)
+    },
+  }
+}
+
+/**
+ * Create an instance of the agent reporter: one bounded JSON object per line,
+ * no terminal formatting, for agents and harnesses.
+ */
+export const agent: (options?: AgentReporterOptions) => NamedReporterContract = (options) => {
+  return {
+    name: 'agent',
+    handler: async (...args) => {
+      const { AgentReporter } = await import('./agent.js')
+      new AgentReporter(options).boot(...args)
     },
   }
 }

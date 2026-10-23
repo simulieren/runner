@@ -1,0 +1,10 @@
+// Set resource overrides before registering the TS loader, whose thread inherits env.
+await import('./worker_env.mjs')
+const { createRequire } = await import('node:module')
+const { pathToFileURL } = await import('node:url')
+const { join } = await import('node:path')
+const web = join(import.meta.dirname, 'app/apps/web')
+const require = createRequire(join(web, 'package.json'))
+await import(pathToFileURL(require.resolve('@poppinss/ts-exec')).href)
+if (process.env.JAPA_PROBE_LOADTIME === '1') await import('./probes/load_timer.mjs')
+await import(pathToFileURL(join(web, 'bin/test.ts')).href)

@@ -1,0 +1,105 @@
+# Using Japa from an agent or harness
+
+This page is for coding agents and the harnesses that drive them. It describes the
+fast loop: run only what the change can affect, read bounded machine output, and
+tell real regressions apart from known failures.
+
+Everything here is opt-in. A plain `npm test` behaves exactly as before.
+
+## The loop
+
+```sh
+# once per checkout: build the selection and dependency caches without running tests
+npx japa --prepare
+
+# after an edit: run only files affected by the changed paths
+npx japa --changed=auto --agent
+
+# or target a test by title, importing only files that can contain it
+npx japa --tests="returns 404" --agent
+
+# after a red run, iterate on new failures only
+npx japa --failed --failed-new --agent
+```
+
+Each of these still pays application boot (about 4–5 s for a large Adonis app).
+Selection removes imports and test execution, not boot. Treat ~5 s as the floor for
+a targeted cold run.
+
+## Flags
+
+| Flag | Effect |
+| --- | --- |
+| `--prepare` | Import every file, write the selection index and dependency map, run no tests. Application setup hooks still run; only test execution is skipped. Cheapest way to prime a fresh checkout. |
+| `--tests` / `--groups` / `--tags` | Filter as before, but files that cannot match are no longer imported. |
+| `--changed=auto` | Use `git diff --name-only HEAD` plus untracked files. |
+| `--changed=a.ts,b.ts` | Explicit paths, relative to the app directory. |
+| `--failed` | Re-run tests that failed last time (unchanged). |
+| `--failed-new` | With `--failed`, skip titles already recorded in `japa.baseline.json`. |
+| `--allow-known-failures` | Exit 0 when the only failures match the baseline. |
+| `--update-baseline` | Rewrite `japa.baseline.json` from this run, awaited before exit. |
+| `--agent` | Replace reporters with bounded JSON lines on stdout. |
+| `--agent-file=path` | Write that JSON to a file, keeping application stdout separate. |
+
+## Exit codes
+
+| Code | Meaning |
+| ---: | --- |
+| 0 | Every selected test passed, or only baseline-known failures occurred. |
+| 1 | At least one test failed that is not in the baseline. |
+| 2 | Setup, configuration or planning failed (invalid shard, missing reporter, import error) — only under `--agent` / `--agent-file`. |
+
+Code 2 is what lets a harness stop retrying a command that cannot succeed.
+
+## Output
+
+One JSON object per line:
+
+```json
+{"t":"test","status":"failed","file":"tests/user.spec.ts","group":"user","title":"creates a user","durationMs":4.2,"errors":[{"name":"AssertionError","message":"expected 1 to equal 2","location":{"file":"tests/user.spec.ts","line":31},"repeated":true}]}
+{"t":"summary","total":2,"failed":1,"passed":1,"regression":0,"skipped":0,"todo":0,"durationMs":12.4,"ok":false,"selection":{"mode":"filtered","planned":1,"skipped":12},"phases":{"bootMs":4310,"importMs":180,"testMs":12},"baseline":{"known":1,"new":0},"errorGroups":[{"message":"expected 1 to equal 2","count":3}]}
+```
+
+- `--agent` emits failing, skipped and todo tests only. Use
+  `agent({ onlyFailures: false })` for every test.
+- `compact` (on for `--agent`) omits stacks after the first occurrence of an error
+  and reports `errorGroups` in the summary.
+- `errors[].location` is the first stack frame outside `node_modules`.
+- `selection.skipped > 0` means files were pruned. `mode: "all"` with a narrow
+  filter means a fallback happened — the selection could not be trusted, so
+  everything ran.
+- Every line is capped at 4000 characters.
+
+## Trust rules
+
+The selection features are built to run too much rather than too little:
+
+- A file whose size or mtime changed since indexing is always imported.
+- A file the index has never seen is always imported.
+- `--changed` falls back to the whole suite if any changed path is unknown.
+- `--failed-new` matches by title only, so it is opt-in; a title that is both
+  known-failing and newly failing elsewhere cannot be distinguished.
+- `--prepare` and normal runs only write cache entries from files they imported;
+  files skipped by the index keep their previous entries.
+
+Caches live under `node_modules/.cache/japa/` and are safe to delete.
+
+## Parallel runs
+
+```sh
+npx japa-parallel --workers=auto -- node bin/test.js
+```
+
+`--workers=auto` uses one worker when the command carries `--tests`, `--groups`,
+`--tags` or `--changed`, because a narrow selection costs less than the extra
+application boots. Other selections use the previous default of
+`min(4, cpus)`. Pass `--workers=N` to override.
+
+## Recommended harness policy
+
+1. Run `--prepare` once per checkout, not per edit.
+2. Prefer `--changed=auto` for edits; fall back to `--tests` for targeted debugging.
+3. Use `--agent-file` when tests log to stdout.
+4. Treat exit 2 as "do not retry"; exit 1 as "read the failures".
+5. Never run the full suite to answer a question a selection can answer, and never
+   run a selection when a changed file is not in the dependency map.

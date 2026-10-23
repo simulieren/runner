@@ -1,5 +1,16 @@
 # Runner performance experiment
 
+Follow-up: [ATS code experiments and the 46–48 s result](ATS_CODE_EXPERIMENTS.md).
+Latest: [sub-30 s experiments, 26.8–28.1 s with six workers](ATS_SUB30_EXPERIMENTS.md).
+
+See the [experiment history](EXPERIMENTS.md) for successful, rejected, inconclusive,
+and interrupted attempts, including why each change was kept or dropped.
+
+The current retained result is the six-worker 26.8–28.1 s run in the sub-30 s
+report. A later session could not reproduce it on a loaded host (47–58 s, with the
+same tests individually about twice as slow); read the follow-up round there
+before comparing any new number.
+
 This fork reduces discovery and file-filtering overhead while retaining upstream 5.4's sharding behavior. It reuses an `Intl.Collator` for numeric, case-insensitive file ordering and computes filter segments once per call and file segments once per file. Test imports remain sequential because registration uses shared current-file/current-suite state.
 
 ## Reproduce
@@ -36,7 +47,7 @@ The synthetic workers use no database, Redis, search, HTTP server, migrations, s
 
 ## Applying to an Adonis application later
 
-Application integration is intentionally deferred. No target application's source, lockfile, dependency tree, generated files, databases or services were changed, and its tests were not run.
+At this synthetic-benchmark stage, application integration was deferred and application tests were not run. Later isolated ATS validation is documented in [the ATS runbook](ATS_VALIDATION.md); the original ATS checkout remains unchanged.
 
 Before enabling concurrent application tests, arrange per-worker database ownership and migration/seed setup, Redis/cache/queue isolation, search collection prefixes, HTTP ports, external resource isolation, and result paths. Audit hard-coded database/service addresses and cleanup operations as well as environment configuration. The application reporter must avoid workers overwriting or pruning one another's result files. Preserve cache cleanup, ownership checks, unknown-file-filter checks and zero-test protection.
 
@@ -167,7 +178,7 @@ Shared-machine noise produced long outliers and overlapping ranges, so these are
 modest synthetic median improvements, not a guaranteed application speedup. Full
 samples and ranges are in [results/core-paths.json](results/core-paths.json).
 The direct core benchmark omits runner-level active-test hooks and application
-bootstrap. ATS remains unmodified and untested.
+bootstrap. These measurements did not run ATS; see the later isolated validation below.
 
 
 ## Automatic workflow (speed.4)
@@ -181,4 +192,11 @@ can opt into `durationHistory()` once. See [PERFORMANCE.md](../PERFORMANCE.md).
 This change is validated with isolated synthetic child processes: cold/warm
 runs, cache recovery, filtered selections, concurrent cache changes, duplicate or
 missing worker reports, failed runs, CLI invocation, and cancellation/forced
-shutdown. No ATS test commands or services are involved.
+shutdown. These synthetic checks do not invoke ATS test commands or services.
+
+## ATS application validation
+
+See [ATS setup, findings, and retesting](ATS_VALIDATION.md) for the isolated app
+measurements, resource layout, mail-state issue, preserved harness, and commands.
+The original ATS checkout remains unchanged; the earlier synthetic-only sections
+above describe their historical scope.

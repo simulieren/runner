@@ -1,0 +1,25 @@
+const id = Number(process.env.JAPA_WORKER_ID ?? 1)
+if (!Number.isInteger(id) || id < 1 || id > 8) throw new Error('Unexpected validation worker id')
+Object.assign(process.env, {
+  NODE_ENV: 'test',
+  DB_HOST: '127.0.0.1',
+  DB_PORT: '25432',
+  DB_USER: 'postgres',
+  DB_PASSWORD: 'japa-speed-test',
+  DB_DATABASE: `japa_speed_worker${id}`,
+  REDIS_HOST: '127.0.0.1',
+  REDIS_PORT: String(26380 + id),
+  REDIS_PASSWORD: '',
+  TYPESENSE_NODE_URL: `http://127.0.0.1:${28180 + id}`,
+  TYPESENSE_API_KEY: 'japa-speed-test',
+  TYPESENSE_COLLECTION_PREFIX: `japa_speed_validation_${id}`,
+  VITE_HMR_PORT: String(24430 + id),
+  HOST: '127.0.0.1',
+  PORT: String(24330 + id),
+  APP_URL: `http://127.0.0.1:${24330 + id}`,
+  SMTP_HOST: '127.0.0.1',
+  SMTP_PORT: String(21024 + id),
+  MAILPIT_URL: `http://127.0.0.1:${28024 + id}`,
+  MAILPIT_API_URL: `http://127.0.0.1:${28024 + id}/api/v1`,
+  TEST_ENV_OWNER: 'japa-speed-isolated-validation',
+})

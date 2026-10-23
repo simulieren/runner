@@ -15,6 +15,7 @@ import { availableParallelism } from 'node:os'
 import debug from './debug.js'
 import { getFailedTests, cacheFailedTests } from './plugins/retry_cache.js'
 import {
+  blendDuration,
   historyFile,
   parseHistory,
   readHistory,
@@ -26,12 +27,18 @@ export type ParallelOptions = {
   command: string
   args?: string[]
   cwd?: string
-  workers?: number
+  workers?: number | 'auto'
   historyFile?: string
   env?: NodeJS.ProcessEnv
   workerEnv?: (worker: number, total: number) => NodeJS.ProcessEnv
   signal?: AbortSignal
   stdio?: 'inherit' | 'ignore'
+  /**
+   * Milliseconds between launching one worker and the next. Zero launches the
+   * whole pool at once; a small stagger stops every process from compiling and
+   * resolving its module graph at the same instant.
+   */
+  startStaggerMs?: number
 }
 
 export type ParallelResult = {
@@ -40,9 +47,28 @@ export type ParallelResult = {
   workers: { worker: number; exitCode: number; signal?: NodeJS.Signals; error?: string }[]
 }
 
+/**
+ * A narrow selection usually costs less than the extra application boots a pool
+ * would pay. Title/tag/group/change filters therefore run on one worker unless
+ * the caller asked for a specific count.
+ */
+export function autoWorkerCount(args: string[]) {
+  const narrow = args.some(
+    (arg) =>
+      arg.startsWith('--tests') ||
+      arg.startsWith('--groups') ||
+      arg.startsWith('--tags') ||
+      arg.startsWith('--changed')
+  )
+  return narrow ? 1 : Math.min(4, availableParallelism())
+}
+
 /** Launch shards against one frozen history snapshot and promote results together. */
 export async function runParallel(options: ParallelOptions): Promise<ParallelResult> {
-  const count = options.workers ?? Math.min(4, availableParallelism())
+  const count =
+    options.workers === 'auto'
+      ? autoWorkerCount(options.args ?? [])
+      : (options.workers ?? Math.min(4, availableParallelism()))
   if (!Number.isInteger(count) || count < 1 || count > 256)
     throw new Error('workers must be an integer between 1 and 256')
   if (!options.command) throw new Error('A test command is required')
@@ -92,10 +118,28 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
     await writeHistory(snapshot, { ...history, runId, failedTests: failed.tests ?? [] })
     options.signal?.addEventListener('abort', abort, { once: true })
     if (options.signal?.aborted) abort()
+    const stagger = Math.max(
+      0,
+      options.startStaggerMs ?? Number(process.env.JAPA_START_STAGGER_MS ?? 0)
+    )
     const workers = await Promise.all(
-      Array.from({ length: count }, (_, index) => {
+      Array.from({ length: count }, async (_, index) => {
         const worker = index + 1
-        if (aborted) return Promise.resolve({ worker, exitCode: 130, error: 'Cancelled' })
+        if (stagger && !aborted) {
+          await new Promise((done) => setTimeout(done, stagger * index))
+        }
+        if (aborted)
+          return {
+            worker,
+            exitCode: 130,
+            error: 'Cancelled',
+          } satisfies ParallelResult['workers'][number]
+        if (aborted)
+          return Promise.resolve<ParallelResult['workers'][number]>({
+            worker,
+            exitCode: 130,
+            error: 'Cancelled',
+          })
         return new Promise<ParallelResult['workers'][number]>((done) => {
           let child: ChildProcess
           try {
@@ -176,13 +220,20 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
           debug('unable to update failed-test cache: %O', error)
         )
       }
-      if (!exitCode && complete && !aborted) {
+      // Test failures exit nonzero but still report complete file costs; a
+      // signal or missing report does not.
+      const finished = workers.every((worker) => !worker.signal && !worker.error)
+      if (validReports && finished && complete && !aborted) {
         try {
           const latest = await readHistory(file, cwd)
+          const merged: DurationMap = { ...latest.durations }
+          for (const [key, measured] of Object.entries(estimates)) {
+            merged[key] = blendDuration(merged[key], measured)
+          }
           await writeHistory(file, {
             version: 1,
             cwd,
-            durations: { ...latest.durations, ...estimates },
+            durations: merged,
           })
           historyUpdated = true
         } catch {

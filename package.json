@@ -1,7 +1,7 @@
 {
   "name": "@japa/runner",
   "description": "A simple yet powerful testing framework for Node.js",
-  "version": "5.4.0-speed.4",
+  "version": "5.4.0-speed.5",
   "engines": {
     "node": ">=18.16.0"
   },
@@ -44,7 +44,10 @@
     "bench:features": "node benchmarks/features.mjs",
     "bench:smoke": "node benchmarks/smoke.mjs",
     "bench:core-paths": "node benchmarks/core_paths.mjs",
-    "bench:automatic": "node benchmarks/automatic_smoke.mjs"
+    "bench:automatic": "node benchmarks/automatic_smoke.mjs",
+    "bench:timing-cache": "node --import=@poppinss/ts-exec benchmarks/timing_cache.mjs",
+    "bench:selection-index": "node --import=@poppinss/ts-exec benchmarks/selection_index.mjs",
+    "bench:changed-selection": "node --import=@poppinss/ts-exec benchmarks/changed_selection.mjs"
   },
   "devDependencies": {
     "@adonisjs/eslint-config": "^3.0.0-next.9",

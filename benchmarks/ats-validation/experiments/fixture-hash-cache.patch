@@ -1,0 +1,58 @@
+--- a/apps/web/tests/helpers/factories.ts
++++ b/apps/web/tests/helpers/factories.ts
+@@ -13,6 +13,8 @@
+  *
+  * @module factories
+  */
++import { withFixtureHashCache } from './fixture_hash_experiment.js'
++
+ import { InvoiceStatus } from '@app/shared/constants/billing'
+ import { DateTime } from 'luxon'
+
+@@ -127,7 +129,7 @@
+     }
+
+     const attributes = { ...defaults, ...overrides }
+-    return await User.create(attributes)
++    return await withFixtureHashCache(() => User.create(attributes))
+   }
+
+   /**
+--- /dev/null
++++ b/apps/web/tests/helpers/fixture_hash_experiment.ts
+@@ -0,0 +1,35 @@
++/** Isolated-lab experiment. Never imported by the original ATS app. */
++import { AsyncLocalStorage } from 'node:async_hooks'
++import hash from '@adonisjs/core/services/hash'
++
++const fixtureScope = new AsyncLocalStorage<boolean>()
++const enabled = process.env.JAPA_EXPERIMENT_FIXTURE_HASH_CACHE === '1'
++const stats = { enabled, hits: 0, misses: 0, realCalls: 0 }
++let cachedDefault: Promise<string> | undefined
++
++if (enabled) {
++  const driver = hash.use('scrypt')
++  const realMake = driver.make.bind(driver)
++  driver.make = async (value: string) => {
++    if (fixtureScope.getStore() === true && value === 'password123') {
++      if (!cachedDefault) {
++        stats.misses++
++        stats.realCalls++
++        cachedDefault = realMake(value).catch((error: unknown) => {
++          cachedDefault = undefined
++          throw error
++        })
++      } else {
++        stats.hits++
++      }
++      return cachedDefault
++    }
++    stats.realCalls++
++    return realMake(value)
++  }
++  process.once('exit', () => console.log('[fixture-hash-experiment]', JSON.stringify(stats)))
++}
++
++export function withFixtureHashCache<T>(create: () => Promise<T>): Promise<T> {
++  return enabled ? fixtureScope.run(true, create) : create()
++}
