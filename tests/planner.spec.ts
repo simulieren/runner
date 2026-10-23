@@ -24,6 +24,7 @@ test.describe('Planner | files', () => {
           name: 'default',
           files: ['tests/**/*.spec.ts'],
           filesURLs: [
+            new URL('../tests/adonis_worker_env.spec.ts', import.meta.url),
             new URL('../tests/base_reporter.spec.ts', import.meta.url),
             new URL('../tests/cli_parser.spec.ts', import.meta.url),
             new URL('../tests/config_manager.spec.ts', import.meta.url),
@@ -71,6 +72,7 @@ test.describe('Planner | files', () => {
           name: 'default',
           files: ['tests/**/*.spec.ts'],
           filesURLs: [
+            new URL('../tests/adonis_worker_env.spec.ts', import.meta.url),
             new URL('../tests/base_reporter.spec.ts', import.meta.url),
             new URL('../tests/cli_parser.spec.ts', import.meta.url),
             new URL('../tests/config_manager.spec.ts', import.meta.url),
@@ -103,6 +105,7 @@ test.describe('Planner | files', () => {
           name: 'default',
           files: ['tests/**/*.spec.ts'],
           filesURLs: [
+            new URL('../tests/adonis_worker_env.spec.ts', import.meta.url),
             new URL('../tests/base_reporter.spec.ts', import.meta.url),
             new URL('../tests/cli_parser.spec.ts', import.meta.url),
             new URL('../tests/config_manager.spec.ts', import.meta.url),
@@ -130,6 +133,7 @@ test.describe('Planner | files', () => {
           name: 'default',
           files: ['tests/**/*.spec.ts'],
           filesURLs: [
+            new URL('../tests/adonis_worker_env.spec.ts', import.meta.url),
             new URL('../tests/base_reporter.spec.ts', import.meta.url),
             new URL('../tests/cli_parser.spec.ts', import.meta.url),
             new URL('../tests/config_manager.spec.ts', import.meta.url),
@@ -162,6 +166,7 @@ test.describe('Planner | files', () => {
           name: 'default',
           files: ['tests/**/*.spec.ts'],
           filesURLs: [
+            new URL('../tests/adonis_worker_env.spec.ts', import.meta.url),
             new URL('../tests/base_reporter.spec.ts', import.meta.url),
             new URL('../tests/cli_parser.spec.ts', import.meta.url),
             new URL('../tests/config_manager.spec.ts', import.meta.url),
@@ -212,6 +217,7 @@ test.describe('Planner | suites', () => {
           name: 'unit',
           files: 'tests/**/*.spec.ts',
           filesURLs: [
+            new URL('../tests/adonis_worker_env.spec.ts', import.meta.url),
             new URL('../tests/base_reporter.spec.ts', import.meta.url),
             new URL('../tests/cli_parser.spec.ts', import.meta.url),
             new URL('../tests/config_manager.spec.ts', import.meta.url),
@@ -269,6 +275,7 @@ test.describe('Planner | suites', () => {
           name: 'unit',
           files: 'tests/**/*.spec.ts',
           filesURLs: [
+            new URL('../tests/adonis_worker_env.spec.ts', import.meta.url),
             new URL('../tests/base_reporter.spec.ts', import.meta.url),
             new URL('../tests/cli_parser.spec.ts', import.meta.url),
             new URL('../tests/config_manager.spec.ts', import.meta.url),
@@ -302,6 +309,7 @@ test.describe('Planner | suites', () => {
           name: 'unit',
           files: 'tests/**/*.spec.ts',
           filesURLs: [
+            new URL('../tests/adonis_worker_env.spec.ts', import.meta.url),
             new URL('../tests/base_reporter.spec.ts', import.meta.url),
             new URL('../tests/cli_parser.spec.ts', import.meta.url),
             new URL('../tests/config_manager.spec.ts', import.meta.url),
@@ -333,6 +341,7 @@ test.describe('Planner | suites', () => {
           name: 'unit',
           files: 'tests/**/*.spec.ts',
           filesURLs: [
+            new URL('../tests/adonis_worker_env.spec.ts', import.meta.url),
             new URL('../tests/base_reporter.spec.ts', import.meta.url),
             new URL('../tests/cli_parser.spec.ts', import.meta.url),
             new URL('../tests/config_manager.spec.ts', import.meta.url),
@@ -364,6 +373,7 @@ test.describe('Planner | suites', () => {
           name: 'unit',
           files: 'tests/**/*.spec.ts',
           filesURLs: [
+            new URL('../tests/adonis_worker_env.spec.ts', import.meta.url),
             new URL('../tests/base_reporter.spec.ts', import.meta.url),
             new URL('../tests/cli_parser.spec.ts', import.meta.url),
             new URL('../tests/config_manager.spec.ts', import.meta.url),
@@ -454,6 +464,7 @@ test.describe('Planner | suites', () => {
           name: 'functional',
           files: 'tests/**/*.spec.ts',
           filesURLs: [
+            new URL('../tests/adonis_worker_env.spec.ts', import.meta.url),
             new URL('../tests/base_reporter.spec.ts', import.meta.url),
             new URL('../tests/cli_parser.spec.ts', import.meta.url),
             new URL('../tests/config_manager.spec.ts', import.meta.url),
@@ -678,6 +689,12 @@ test.describe('Planner | shard', () => {
     await wrapAssertions(() => {
       assert.deepEqual(shards, [
         [
+          new URL('../tests/adonis_worker_env.spec.ts', import.meta.url),
+          new URL('../tests/config_manager.spec.ts', import.meta.url),
+          new URL('../tests/github_reporter.spec.ts', import.meta.url),
+          new URL('../tests/runner.spec.ts', import.meta.url),
+        ],
+        [
           new URL('../tests/base_reporter.spec.ts', import.meta.url),
           new URL('../tests/core.spec.ts', import.meta.url),
           new URL('../tests/helpers.spec.ts', import.meta.url),
@@ -686,11 +703,6 @@ test.describe('Planner | shard', () => {
           new URL('../tests/cli_parser.spec.ts', import.meta.url),
           new URL('../tests/files_manager.spec.ts', import.meta.url),
           new URL('../tests/planner.spec.ts', import.meta.url),
-        ],
-        [
-          new URL('../tests/config_manager.spec.ts', import.meta.url),
-          new URL('../tests/github_reporter.spec.ts', import.meta.url),
-          new URL('../tests/runner.spec.ts', import.meta.url),
         ],
       ])
     })
@@ -749,9 +761,9 @@ test.describe('Planner | shard', () => {
 
     await wrapAssertions(() => {
       assert.deepEqual(suites[0].filesURLs, [
-        new URL('../tests/cli_parser.spec.ts', import.meta.url),
-        new URL('../tests/files_manager.spec.ts', import.meta.url),
-        new URL('../tests/planner.spec.ts', import.meta.url),
+        new URL('../tests/base_reporter.spec.ts', import.meta.url),
+        new URL('../tests/core.spec.ts', import.meta.url),
+        new URL('../tests/helpers.spec.ts', import.meta.url),
       ])
     })
   })

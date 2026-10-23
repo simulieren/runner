@@ -29,6 +29,8 @@ const OPTIONS = {
     'shard',
     'changed',
     'agentFile',
+    'indexFile',
+    'dependencyFile',
   ],
   boolean: [
     'help',
@@ -52,6 +54,8 @@ const OPTIONS = {
     updateBaseline: 'update-baseline',
     reporterAgent: 'agent',
     agentFile: 'agent-file',
+    indexFile: 'index-file',
+    dependencyFile: 'dependency-file',
     failedNew: 'failed-new',
     agentAll: 'agent-all',
     help: 'h',
@@ -86,6 +90,8 @@ ${colors.green('--failed-new')}                ${colors.dim('With --failed, skip
 ${colors.green('--prepare')}                   ${colors.dim('Build the selection and dependency caches without running tests')}
 ${colors.green('--agent-file')}                ${colors.dim('Write agent JSON lines to a file instead of stdout')}
 ${colors.green('--agent-all')}                 ${colors.dim('With the agent reporter, emit passing tests too')}
+${colors.green('--index-file')}                ${colors.dim('Path to the selection index cache (default under node_modules/.cache/japa)')}
+${colors.green('--dependency-file')}           ${colors.dim('Path to the dependency map cache (default under node_modules/.cache/japa)')}
 ${colors.green('-h, --help')}                  ${colors.dim('View help')}
 
 ${colors.yellow('Examples:')}

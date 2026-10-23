@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { spawn } from 'node:child_process'
-import { readdir, realpath } from 'node:fs/promises'
+import { readFile, readdir, realpath, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import { diffReports, parseAgentReport, type ParsedAgentReport } from '../src/agent_delta.js'
 
 /**
  * Harness-agnostic test loop for agents.
@@ -100,13 +101,29 @@ async function main() {
   const out = options.out
     ? resolve(cwd, options.out)
     : join(cwd, 'node_modules/.cache/japa/agent.jsonl')
+  const previous = await readReport(out)
   const runArgs = [...args, '--agent']
   if (!args.some((arg) => arg.startsWith('--agent-file'))) runArgs.push(`--agent-file=${out}`)
   if (!options.full && !selectionGiven) runArgs.push('--changed=auto')
 
   const exit = await run(executable, runArgs, cwd, options.timeout)
-  process.stderr.write(`japa-agent: exit=${exit} report=${out}\n`)
+
+  const current = await readReport(out)
+  const delta = diffReports(previous, current ?? { failures: [] })
+  const deltaPath = `${out}.delta.json`
+  await writeFile(deltaPath, `${JSON.stringify(delta, null, 2)}\n`).catch(() => {})
+
+  process.stderr.write(
+    `japa-agent: exit=${exit} new=${delta.counts.new} fixed=${delta.counts.fixed} ` +
+      `report=${out} delta=${deltaPath}\n`
+  )
   return exit
+}
+
+async function readReport(path: string): Promise<ParsedAgentReport | undefined> {
+  const text = await readFile(path, 'utf8').catch(() => undefined)
+  if (text === undefined) return undefined
+  return parseAgentReport(text)
 }
 
 try {

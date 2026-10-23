@@ -1266,6 +1266,55 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.deepEqual(index.files['file.spec.ts'].groups, ['group'])
   })
 
+  test('use tracked cache files instead of the default cache directory', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { access, readFile, readdir, rm, writeFile } = await import('node:fs/promises')
+    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    const flags = ['--index-file=.japa/index.json', '--dependency-file=.japa/deps.json']
+
+    await promisify(execFile)(
+      process.execPath,
+      [`--import=${loader}`, entry, '--prepare', ...flags],
+      {
+        cwd,
+      }
+    )
+    await access(`${cwd}/.japa/index.json`)
+    await access(`${cwd}/.japa/deps.json`)
+    const defaultCache = await readdir(`${cwd}/node_modules/.cache/japa`).catch(() => [])
+    assert.equal(
+      defaultCache.some((name) => name.startsWith('index-') || name === 'dependencies.json'),
+      false
+    )
+
+    // Removing the default cache must not lose selection: the tracked files are used.
+    await rm(`${cwd}/node_modules/.cache/japa`, { recursive: true, force: true })
+    await promisify(execFile)(
+      process.execPath,
+      [
+        `--import=${loader}`,
+        entry,
+        '--tests=case 3',
+        ...flags,
+        '--agent',
+        '--agent-all',
+        '--agent-file=report.jsonl',
+      ],
+      { cwd, env: { ...process.env, TEST_OBSERVED: `${cwd}/observed-serial.json` } }
+    )
+    const observed = JSON.parse(await readFile(`${cwd}/observed-serial.json`, 'utf8'))
+    assert.deepEqual(observed.executed, [3])
+    const report = await readFile(`${cwd}/report.jsonl`, 'utf8')
+    const summary = report
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+      .at(-1)
+    assert.equal(summary.selection.skipped, 5)
+  })
+
   test('japa-agent prepares caches and runs through the agent reporter', async (context) => {
     const { cwd, entry, loader } = await fixture(context)
     const { readFile, writeFile } = await import('node:fs/promises')

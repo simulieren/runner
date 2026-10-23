@@ -72,6 +72,61 @@ a targeted cold run.
 | `--agent-file=path` | Write that JSON to a file, keeping application stdout separate. |
 | `--agent-all` | With the agent reporter, emit passing tests too (useful for identity diffs). |
 
+## Tracked caches
+
+Both caches default to `node_modules/.cache/japa/`. They can live in a tracked
+path instead, so CI or a pre-commit hook ships them and a fresh checkout starts
+fast:
+
+```sh
+npx japa --prepare --index-file=.japa/index.json --dependency-file=.japa/deps.json
+npx japa --tests="..." --index-file=.japa/index.json --dependency-file=.japa/deps.json
+```
+
+Both are ordinary JSON with relative paths and are safe to commit.
+
+## Faster boot
+
+Set `NODE_COMPILE_CACHE` before Node starts. It is process-wide and saves roughly
+0.2 s per worker on a large Adonis app; the directory is safe to delete.
+
+```sh
+NODE_COMPILE_CACHE=node_modules/.cache/node-compile npx japa-agent -- node bin/test.ts
+```
+
+## AdonisJS helpers
+
+`@japa/runner/factories` exports `adonisWorkerResources`,
+`applyAdonisWorkerEnv` and `assertAdonisWorkerIsolation`. They derive isolated
+database, Redis, search, HTTP and mail values from `JAPA_WORKER_ID`:
+
+```ts
+import { adonisWorkerResources, applyAdonisWorkerEnv } from '@japa/runner/factories'
+
+const resources = adonisWorkerResources(Number(process.env.JAPA_WORKER_ID ?? 1), {
+  databasePrefix: 'myapp_test_',
+  redisBasePort: 26_380,
+  httpBasePort: 24_330,
+})
+applyAdonisWorkerEnv(resources)
+```
+
+Provisioning the database and services is still the app's job; the helpers only
+derive and validate names and ports. An Ace command can wrap the whole loop:
+
+```ts
+// commands/test.ts (illustrative; depends on your @adonisjs/core version)
+import { spawn } from 'node:child_process'
+const child = spawn('npx', ['japa-agent', '--', process.execPath, '--import=@poppinss/ts-exec', 'bin/test.ts', ...this.parsed.args], { stdio: 'inherit' })
+```
+
+## Delta reports
+
+`japa-agent` writes `<report>.delta.json` next to the report with `newFailures`,
+`fixed`, counts and a `comparable` flag. "Fixed" is only reported when the
+selection signature and test total match the previous run; otherwise a missing
+test may simply not have been selected.
+
 ## Exit codes
 
 | Code | Meaning |

@@ -47,7 +47,8 @@
     "bench:automatic": "node benchmarks/automatic_smoke.mjs",
     "bench:timing-cache": "node --import=@poppinss/ts-exec benchmarks/timing_cache.mjs",
     "bench:selection-index": "node --import=@poppinss/ts-exec benchmarks/selection_index.mjs",
-    "bench:changed-selection": "node --import=@poppinss/ts-exec benchmarks/changed_selection.mjs"
+    "bench:changed-selection": "node --import=@poppinss/ts-exec benchmarks/changed_selection.mjs",
+    "bench:agent-delta": "node --import=@poppinss/ts-exec benchmarks/agent_delta.mjs"
   },
   "devDependencies": {
     "@adonisjs/eslint-config": "^3.0.0-next.9",

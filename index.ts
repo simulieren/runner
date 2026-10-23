@@ -248,15 +248,26 @@ export async function run() {
      */
     if (!process.env.JAPA_SPEED_RUN_ID) {
       const { changedSelection, recordDependencies } = await import('./src/dependencies.js')
-      await changedSelection()({ config: runnerConfig!, runner, emitter, cliArgs })
-      await recordDependencies()({ config: runnerConfig!, runner, emitter, cliArgs })
+      const dependencyOptions = { file: cliArgs.dependencyFile }
+      await changedSelection(dependencyOptions)({ config: runnerConfig!, runner, emitter, cliArgs })
+      await recordDependencies(dependencyOptions)({
+        config: runnerConfig!,
+        runner,
+        emitter,
+        cliArgs,
+      })
     }
 
     if (!process.env.JAPA_NO_SELECTION_INDEX) {
       const { selectionIndex } = await import('./src/selection_index.js')
       // `--changed` already set the selection; do not let the title index widen it.
       if (!cliArgs.changed) {
-        await selectionIndex()({ config: runnerConfig!, runner, emitter, cliArgs })
+        await selectionIndex({ file: cliArgs.indexFile })({
+          config: runnerConfig!,
+          runner,
+          emitter,
+          cliArgs,
+        })
       }
     }
 
@@ -385,7 +396,7 @@ export async function run() {
      */
     if (!process.env.JAPA_NO_SELECTION_INDEX) {
       const { writeSelectionIndexFor } = await import('./src/selection_index.js')
-      await writeSelectionIndexFor(runner as never, runnerConfig!.cwd)
+      await writeSelectionIndexFor(runner as never, runnerConfig!.cwd, { file: cliArgs.indexFile })
     }
 
     /**

@@ -268,8 +268,13 @@ The two tarballs are `japa-core-10.4.0-speed.2.tgz` and
 project when ready. The runner depends on the unpublished core prerelease;
 installing the runner tarball alone cannot resolve that version from npm.
 
+`--index-file` and `--dependency-file` let both caches live in a tracked path, so
+a fresh checkout can start with them. `japa-agent` also writes a delta report
+beside the agent stream. See [the harness guide](AGENT_INTEGRATION.md).
+
 Benchmark probes are available as `npm run bench:timing-cache`,
-`npm run bench:selection-index` and `npm run bench:changed-selection`.
+`npm run bench:selection-index`, `npm run bench:changed-selection` and
+`npm run bench:agent-delta`.
 
 Fresh production-only installation of both tarballs is checked with the
 same 56-case smoke matrix as the working checkout, plus cold/warm installed-bin

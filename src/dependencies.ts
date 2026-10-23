@@ -69,7 +69,8 @@ export async function gitChangedPaths(cwd: string): Promise<string[]> {
 }
 
 export function dependencyFile(cwd: string, file?: string) {
-  return resolve(cwd, file ?? 'node_modules/.cache/japa/dependencies.json')
+  // CLI flags default to an empty string, which must not resolve to the cwd.
+  return resolve(cwd, file || 'node_modules/.cache/japa/dependencies.json')
 }
 
 export function parseDependencyMap(value: unknown): DependencyMap {

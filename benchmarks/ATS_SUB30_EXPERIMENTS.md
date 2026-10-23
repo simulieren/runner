@@ -572,3 +572,22 @@ and `@japa/plugin-adonisjs 5.2.0`. Against that copy:
 - The same six-worker run with `--allow-known-failures` exited **0**.
 - A serial `--files=... --tests=... --update-baseline` run left the baseline
   byte-identical, as intended.
+
+## Plan round: boot attribution and integration helpers
+
+Short probes, no full-suite rerun.
+
+**Boot attribution** (`probes/boot_breakdown.mjs`, sampled at 250 µs, `--prepare`):
+`makeSyncRequest` in Node's ESM hook layer accounted for **4,397 ms** of sampled
+CPU, `compileSourceTextModule` 1,175 ms, and all Adonis provider files together
+only tens of milliseconds (`@adonisjs/lucid` 29.9 ms, app modules 33.8 ms). App
+providers are therefore not the boot cost; the loader path is. This makes lazy
+providers a poor lever and reinforces the loader experiment.
+
+**Loader experiment (preliminary, not adopted).** With `tsx` installed only in the
+copied app, `bootstrap-loaded` was **3,485–3,505 ms** through `npx tsx` versus
+**4,982–5,075 ms** with `@poppinss/ts-exec` in the same app, and a filtered run
+through `tsx` selected the same identity (planned 4, skipped 644). Direct
+`node --import=tsx` samples were noisy (4.5–6.0 s), so this is a lead, not a
+result. Decorator/metadata correctness across the full suite was not verified;
+do not adopt without a full identity run.
