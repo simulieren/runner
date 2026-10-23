@@ -591,3 +591,19 @@ through `tsx` selected the same identity (planned 4, skipped 644). Direct
 `node --import=tsx` samples were noisy (4.5–6.0 s), so this is a lead, not a
 result. Decorator/metadata correctness across the full suite was not verified;
 do not adopt without a full identity run.
+
+### Plan round 2: setup-free prepare, locks, baseline history, gates
+
+- `--prepare-caches` now skips global setup hooks. In the copy it took **9.68 s**
+  at load 5.4: boot ~4.8 s plus the full import pass (~3.3 s). Setup was only
+  ~0.6 s with the template DB, so imports, not setup, dominate prepare.
+- Cache read-modify-write sequences (selection index, dependency map, duration
+  history, baseline) now take a lock, with stale-lock recovery.
+- Baselines store `consecutive`/`updatedAt`; entries that stop failing stay at
+  `consecutive: 0`, are reported as `fixed`, and a run that both adds and removes
+  entries prints a warning.
+- The differential gate ran on ATS with one title: indexed and unindexed runs
+  selected **the same identity**, both exit 0. Script:
+  `probes/selection_gate.mjs`.
+- `japa-agent` records loop metrics; `--report` prints runs, median run time,
+  new/fixed totals and selection modes.

@@ -10,12 +10,13 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { registerHooks } from 'node:module'
+import * as nodeModule from 'node:module'
 import { promisify } from 'node:util'
 import { pathToFileURL } from 'node:url'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import debug from './debug.js'
+import { withCacheLock } from './cache_lock.js'
 import type { PluginFn } from './types.js'
 
 /**
@@ -132,6 +133,14 @@ export function filesAffectedBy(map: DependencyMap, changed: string[]): string[]
  */
 export function recordDependencies(options: { file?: string } = {}): PluginFn {
   return async ({ config, emitter }) => {
+    // Node 22.15+/23.5+ ship registerHooks. On older supported versions the
+    // dependency map is simply unavailable; --changed then runs everything.
+    const hooks = nodeModule as { registerHooks?: typeof nodeModule.registerHooks }
+    if (typeof hooks.registerHooks !== 'function') {
+      debug('node:module registerHooks is unavailable; dependency recording disabled')
+      return
+    }
+
     const cwd = config.cwd
     const target = dependencyFile(cwd, options.file)
     const map = await readDependencyMap(target)
@@ -151,7 +160,7 @@ export function recordDependencies(options: { file?: string } = {}): PluginFn {
      * each test file. Resolve runs per parent URL, so shared modules keep every
      * incoming edge even when the module itself is cached.
      */
-    registerHooks({
+    hooks.registerHooks({
       resolve(specifier, context, nextResolve) {
         const result = nextResolve(specifier, context)
         const parent = context.parentURL?.split('?')[0]
@@ -193,10 +202,18 @@ export function recordDependencies(options: { file?: string } = {}): PluginFn {
 
       try {
         const { mkdir, rename, writeFile } = await import('node:fs/promises')
-        const temporary = `${target}.${process.pid}.tmp`
-        await mkdir(resolve(target, '..'), { recursive: true })
-        await writeFile(temporary, `${JSON.stringify(map)}\n`)
-        await rename(temporary, target)
+        await withCacheLock(target, async () => {
+          // Another agent may have written since this run started.
+          const latest = await readDependencyMap(target)
+          for (const [testFile, dependencies] of Object.entries(map.files)) {
+            const merged = new Set([...(latest.files[testFile] ?? []), ...dependencies])
+            latest.files[testFile] = [...merged].sort()
+          }
+          const temporary = `${target}.${process.pid}.tmp`
+          await mkdir(resolve(target, '..'), { recursive: true })
+          await writeFile(temporary, `${JSON.stringify(latest)}\n`)
+          await rename(temporary, target)
+        })
       } catch (error) {
         debug('unable to record dependencies: %O', error)
         await import('node:fs/promises')

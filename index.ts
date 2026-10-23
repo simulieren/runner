@@ -348,7 +348,10 @@ export async function run() {
      * Only run global hooks when we are not listing
      * pinned tests
      */
-    if (!cliArgs.listPinned) {
+    // Preparing caches only needs imports. Skipping app setup keeps it cheap and
+    // avoids touching databases that the caller did not reset.
+    const preparing = Boolean(cliArgs.prepare || cliArgs.prepareCaches)
+    if (!cliArgs.listPinned && !preparing) {
       await globalHooks.setup(runner)
     }
 
@@ -476,7 +479,7 @@ export async function run() {
      */
     let onlyKnownFailures = false
     if ((cliArgs.allowKnownFailures || cliArgs.updateBaseline) && runFailures) {
-      const { readBaseline, diffFailures, writeBaseline, baselineFile } =
+      const { readBaseline, diffFailures, updateBaseline, baselineFile } =
         await import('./src/failure_baseline.js')
       const file = baselineFile(runnerConfig!.cwd)
       /**
@@ -496,7 +499,14 @@ export async function run() {
         !filters.tags?.length &&
         !filters.files?.length
       if (cliArgs.updateBaseline && isFullRun) {
-        await writeBaseline(file, { version: 1, failures: runFailures.failures })
+        const update = await updateBaseline(file, runFailures.failures)
+        if (update.added.length && update.removed.length) {
+          console.warn(
+            `Baseline changed in both directions (${update.added.length} added, ` +
+              `${update.removed.length} no longer failing). Rerun on a quiet machine ` +
+              'if that was unexpected.'
+          )
+        }
       } else if (cliArgs.updateBaseline && !process.env.JAPA_SPEED_RUN_ID) {
         console.warn(
           'Baseline not updated: --update-baseline requires a full run ' +
@@ -505,11 +515,19 @@ export async function run() {
       }
       if (cliArgs.allowKnownFailures) {
         const baseline = await readBaseline(file)
-        const { new: fresh, known } = diffFailures(baseline, runFailures.failures)
+        const { new: fresh, known, fixed } = diffFailures(baseline, runFailures.failures)
         onlyKnownFailures = fresh.length === 0
+        if (fixed.length && !cliArgs.reporterAgent && !cliArgs.agentFile) {
+          console.warn(
+            `${fixed.length} baseline ${fixed.length === 1 ? 'entry' : 'entries'} did not fail; ` +
+              'remove them with --update-baseline when convenient.'
+          )
+        }
         if (cliArgs.reporterAgent || cliArgs.agentFile) {
           const { setAgentContext } = await import('./src/reporters/context.js')
-          setAgentContext({ baseline: { known: known.length, new: fresh.length } })
+          setAgentContext({
+            baseline: { known: known.length, new: fresh.length, fixed: fixed.length },
+          })
         }
       }
     }

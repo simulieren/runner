@@ -28,6 +28,7 @@ export type AgentContext = {
   baseline?: {
     known: number
     new: number
+    fixed?: number
   }
 }
 

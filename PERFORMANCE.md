@@ -79,7 +79,9 @@ which failures are expected. Commit a `japa.baseline.json` and run with
 `--allow-known-failures` to exit 0 when the only failures are recorded there. Any
 failure not in the baseline still exits 1.
 
-`--update-baseline` records the current failures, sorted, so the file is stable in
+`--update-baseline` records the current failures, sorted, with a consecutive-run
+count; entries that stop failing stay with `consecutive: 0` and are reported as
+fixed., so the file is stable in
 review. It is a deliberate action, not part of a normal run; the write finishes
 before the process exits or any comparison reads the file back. Only a full run
 writes it: a filtered, changed or sharded selection leaves the existing baseline
@@ -174,7 +176,8 @@ rather than replacing it, so one contended run cannot fully rewrite the next
 assignment. Unknown files adopt the measurement directly.
 
 Existing cache entries are merged, including when another run has updated the
-cache in the meantime. Concurrent jobs use separate snapshots, so changes to the
+cache in the meantime. Cache read-modify-write sequences take a lock, so
+concurrent agents no longer overwrite one another's learned entries. Concurrent jobs use separate snapshots, so changes to the
 shared cache cannot change an in-progress worker's assignment. Cache updates are
 best-effort; there is no cross-job cache lock, so last-writer-wins can lose some
 training updates in an overlapping write. Each resulting cache is valid JSON,

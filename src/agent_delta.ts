@@ -25,6 +25,7 @@ export type AgentSelection = {
 export type AgentSummary = {
   total: number
   selection?: AgentSelection
+  phases?: { bootMs?: number; importMs?: number; testMs?: number }
 }
 
 export type ParsedAgentReport = {
@@ -65,6 +66,9 @@ export function parseAgentReport(text: string): ParsedAgentReport {
         total: record.total,
         ...(record.selection && typeof record.selection === 'object'
           ? { selection: record.selection as AgentSelection }
+          : {}),
+        ...(record.phases && typeof record.phases === 'object'
+          ? { phases: record.phases as AgentSummary['phases'] }
           : {}),
       }
     } else if (kind === 'test' && record.status === 'failed' && typeof record.title === 'string') {

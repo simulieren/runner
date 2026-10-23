@@ -14,7 +14,8 @@ import { dirname, join } from 'node:path'
 import { availableParallelism } from 'node:os'
 import debug from './debug.js'
 import { getFailedTests, cacheFailedTests } from './plugins/retry_cache.js'
-import { baselineFile, writeBaseline, type BaselineEntry } from './failure_baseline.js'
+import { baselineFile, updateBaseline, type BaselineEntry } from './failure_baseline.js'
+import { withCacheLock } from './cache_lock.js'
 import {
   blendDuration,
   historyFile,
@@ -48,6 +49,7 @@ export type ParallelResult = {
   exitCode: number
   historyUpdated: boolean
   baselineUpdated: boolean
+  baselineChanges?: { added: number; removed: number }
   workers: { worker: number; exitCode: number; signal?: NodeJS.Signals; error?: string }[]
 }
 
@@ -184,6 +186,7 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
     let exitCode = aborted ? 130 : (workers.find((worker) => worker.exitCode !== 0)?.exitCode ?? 0)
     let historyUpdated = false
     let baselineUpdated = false
+    let baselineChanges: { added: number; removed: number } | undefined
     const baselineFailures: BaselineEntry[] = []
     const estimates: DurationMap = Object.create(null)
     let complete = true
@@ -234,15 +237,17 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
       const finished = workers.every((worker) => !worker.signal && !worker.error)
       if (validReports && finished && complete && !aborted) {
         try {
-          const latest = await readHistory(file, cwd)
-          const merged: DurationMap = { ...latest.durations }
-          for (const [key, measured] of Object.entries(estimates)) {
-            merged[key] = blendDuration(merged[key], measured)
-          }
-          await writeHistory(file, {
-            version: 1,
-            cwd,
-            durations: merged,
+          await withCacheLock(file, async () => {
+            const latest = await readHistory(file, cwd)
+            const merged: DurationMap = { ...latest.durations }
+            for (const [key, measured] of Object.entries(estimates)) {
+              merged[key] = blendDuration(merged[key], measured)
+            }
+            await writeHistory(file, {
+              version: 1,
+              cwd,
+              durations: merged,
+            })
           })
           historyUpdated = true
         } catch {
@@ -255,7 +260,11 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
       // replace a committed baseline with a slice of the suite.
       if (options.updateBaseline && validReports && finished && complete && !aborted) {
         try {
-          await writeBaseline(baselineFile(cwd), { version: 1, failures: baselineFailures })
+          const update = await updateBaseline(baselineFile(cwd), baselineFailures)
+          baselineChanges = {
+            added: update.added.length,
+            removed: update.removed.length,
+          }
           baselineUpdated = true
         } catch (error) {
           debug('unable to write the failure baseline: %O', error)
@@ -263,7 +272,13 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
       }
     }
     if (escalation) await escalation
-    return { exitCode: aborted ? 130 : exitCode, historyUpdated, baselineUpdated, workers }
+    return {
+      exitCode: aborted ? 130 : exitCode,
+      historyUpdated,
+      baselineUpdated,
+      ...(baselineChanges ? { baselineChanges } : {}),
+      workers,
+    }
   } finally {
     options.signal?.removeEventListener('abort', abort)
     await rm(directory, { recursive: true, force: true })

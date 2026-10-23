@@ -60,7 +60,7 @@ a targeted cold run.
 
 | Flag | Effect |
 | --- | --- |
-| `--prepare-caches` (alias `--prepare`) | Import every file, write the selection index and dependency map, run no tests. Application setup hooks still run; only test execution is skipped. Cheapest way to prime a fresh checkout. |
+| `--prepare-caches` (alias `--prepare`) | Import every file, write the selection index and dependency map, run no tests and skip application setup hooks. Cheapest way to prime a fresh checkout. |
 | `--tests` / `--groups` / `--tags` | Filter as before, but files that cannot match are no longer imported. |
 | `--changed=auto` | Use `git diff --name-only HEAD` plus untracked files. |
 | `--changed=a.ts,b.ts` | Explicit paths, relative to the app directory. |
@@ -131,6 +131,29 @@ const child = spawn(
   { stdio: 'inherit' }
 )
 ```
+
+## Loop metrics
+
+Every `japa-agent` run appends one line to
+`node_modules/.cache/japa/agent-metrics.jsonl` with its run time, prepare time,
+selection and failure delta. Summarise the loop:
+
+```sh
+npx japa-agent --cwd=apps/web --report
+```
+
+This is the number to optimise: invocations per task and edit-to-green time, not a
+single run. Use `--no-metrics` to opt out.
+
+## Measuring the lab
+
+`node benchmarks/lab_runner.mjs --label=filtered --reps=3 --max-load=4 -- <command>`
+runs sequentially, samples load, and exits 3 with `LOAD-AFFECTED` when the machine
+exceeded the budget. It writes a JSON result with the median and every sample.
+
+The differential selection gate lives in
+`benchmarks/ats-validation/probes/selection_gate.mjs`: it runs a filter with and
+without the index and fails when the test identities or exit codes differ.
 
 ## Delta reports
 

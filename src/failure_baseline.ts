@@ -8,6 +8,7 @@
  */
 
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { withCacheLock } from './cache_lock.js'
 import { dirname, relative, resolve } from 'node:path'
 import debug from './debug.js'
 
@@ -20,6 +21,10 @@ export type BaselineEntry = {
   suite: string
   file: string
   title: string
+  /** Consecutive full runs in which this failure appeared. */
+  consecutive?: number
+  /** Last time the entry was observed failing. */
+  updatedAt?: string
 }
 
 export type Baseline = {
@@ -99,6 +104,57 @@ export function collectFailures(
 }
 
 /**
+ * Merge this run's failures into the previous baseline.
+ *
+ * Entries that fail again gain a consecutive count; entries that passed stay in
+ * the file with `consecutive: 0` so a later run can still recognise them and so
+ * the UI can report them as passing. `added` and `removed` describe the
+ * disagreement in both directions, which is the signal that a run may be noisy.
+ */
+export function mergeBaseline(
+  previous: Baseline,
+  observed: BaselineEntry[],
+  now = new Date().toISOString()
+): { baseline: Baseline; added: BaselineEntry[]; removed: BaselineEntry[] } {
+  const existing = new Map(previous.failures.map((entry) => [keyOf(entry), entry]))
+  const seen = new Set<string>()
+  const failures: BaselineEntry[] = []
+  const added: BaselineEntry[] = []
+
+  for (const entry of observed) {
+    const key = keyOf(entry)
+    seen.add(key)
+    const old = existing.get(key)
+    const merged: BaselineEntry = {
+      suite: entry.suite,
+      file: entry.file,
+      title: entry.title,
+      consecutive: (old?.consecutive ?? 0) + 1,
+      updatedAt: now,
+    }
+    if (!old) added.push(merged)
+    failures.push(merged)
+  }
+
+  const removed = previous.failures.filter((entry) => !seen.has(keyOf(entry)))
+  for (const entry of removed) {
+    failures.push({ ...entry, consecutive: 0 })
+  }
+
+  return { baseline: { version: 1, failures }, added, removed }
+}
+
+/** Read, merge and write a baseline under an exclusive lock. */
+export async function updateBaseline(file: string, observed: BaselineEntry[]) {
+  return withCacheLock(file, async () => {
+    const previous = await readBaseline(file)
+    const result = mergeBaseline(previous, observed)
+    await writeBaseline(file, result.baseline)
+    return result
+  })
+}
+
+/**
  * Separate tests this run failed from failures the baseline already knows.
  *
  * `new` is what a caller acts on; `known` and `fixed` are informational. A test
@@ -108,12 +164,14 @@ export function collectFailures(
 export function diffFailures(
   baseline: Baseline,
   failures: BaselineEntry[]
-): { new: BaselineEntry[]; known: BaselineEntry[] } {
+): { new: BaselineEntry[]; known: BaselineEntry[]; fixed: BaselineEntry[] } {
   const expected = new Set(baseline.failures.map(keyOf))
+  const seen = new Set(failures.map(keyOf))
   const fresh: BaselineEntry[] = []
   const known: BaselineEntry[] = []
   for (const failure of failures) {
     ;(expected.has(keyOf(failure)) ? known : fresh).push(failure)
   }
-  return { new: fresh, known }
+  const fixed = baseline.failures.filter((entry) => !seen.has(keyOf(entry)))
+  return { new: fresh, known, fixed }
 }

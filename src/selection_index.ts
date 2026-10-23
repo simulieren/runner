@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, relative } from 'node:path'
 import debug from './debug.js'
+import { withCacheLock } from './cache_lock.js'
 import type { PluginFn } from './types.js'
 
 /**
@@ -263,8 +264,10 @@ export async function writeSelectionIndexFor(
   options: { file?: string } = {}
 ) {
   const target = indexFile(cwd, options.file)
-  const index = await readIndex(target)
-  const count = await collectIndex(runner, cwd, index)
-  if (count) await writeIndex(target, index)
-  return count
+  return withCacheLock(target, async () => {
+    const index = await readIndex(target)
+    const count = await collectIndex(runner, cwd, index)
+    if (count) await writeIndex(target, index)
+    return count
+  })
 }

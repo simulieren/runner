@@ -56,6 +56,11 @@ configure({
       if (process.env.TEST_TAMPER === '1') config.shardDurations = {}
     },
   ],
+  setup: [
+    async () => {
+      await writeFile(resolve('setup-ran.json'), '1')
+    },
+  ],
   reporters: { activated: [], list: [] },
   importer(url) {
     imported.push(url.href.split('/').pop())

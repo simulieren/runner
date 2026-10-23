@@ -13,6 +13,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import debug from './debug.js'
 import type { PluginFn } from './types.js'
 import type { BaselineEntry } from './failure_baseline.js'
+import { withCacheLock } from './cache_lock.js'
 
 const REGISTERED = new WeakSet<object>()
 
@@ -249,15 +250,17 @@ export function durationHistory(options: { file?: string } = {}): PluginFn {
       } else if (complete) {
         try {
           const file = historyFile(cwd, options.file)
-          const latest = await readHistory(file, cwd)
-          const merged: DurationMap = { ...latest.durations }
-          for (const [key, measured] of Object.entries(durations)) {
-            merged[key] = blendDuration(merged[key], measured)
-          }
-          await writeHistory(file, {
-            version: 1,
-            cwd,
-            durations: merged,
+          await withCacheLock(file, async () => {
+            const latest = await readHistory(file, cwd)
+            const merged: DurationMap = { ...latest.durations }
+            for (const [key, measured] of Object.entries(durations)) {
+              merged[key] = blendDuration(merged[key], measured)
+            }
+            await writeHistory(file, {
+              version: 1,
+              cwd,
+              durations: merged,
+            })
           })
         } catch (error) {
           // A performance cache must not turn a passing serial run into a failure.

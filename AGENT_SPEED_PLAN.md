@@ -469,3 +469,18 @@ came from a loaded host, label it load-affected.
 Remaining high-value work: verify `tsx` (or a compiled test run) across the full
 8,515 identities; if it holds, measure a six-worker run. Then adopt the wrapper in
 each harness. C3 only with new evidence.
+
+## Progress (second round)
+
+| Improvement | State |
+| --- | --- |
+| Node compatibility | `registerHooks` is feature-detected; on older Node, dependency recording is disabled and `--changed` falls back to the full suite |
+| Setup-free prepare | `--prepare-caches` skips global setup hooks; prepare remains import-bound (~9.7 s at load 5.4 on ATS) |
+| Differential gate | `probes/selection_gate.mjs` compares indexed and unindexed identities and exit codes |
+| Cache locking | `src/cache_lock.ts`; used by selection index, dependency map, duration history and baseline |
+| Baseline discipline | `consecutive`/`updatedAt`, fixed entries, both-direction warning, coordinator merge |
+| Lab runner | `benchmarks/lab_runner.mjs` records load and marks samples `LOAD-AFFECTED` |
+| Loop metrics | `japa-agent` appends per-run metrics; `--report` summarises them |
+
+Still open: full-suite `tsx` verification, C3 rollback, adopting the wrapper in each
+harness, and a quiet-host run.

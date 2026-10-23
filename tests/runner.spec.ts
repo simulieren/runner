@@ -1285,6 +1285,12 @@ test.describe('Automatic duration history and worker coordination', () => {
     )
     await access(`${cwd}/.japa/index.json`)
     await access(`${cwd}/.japa/deps.json`)
+    // Preparing caches must not run application setup hooks.
+    const setupRanDuringPrepare = await access(`${cwd}/setup-ran.json`).then(
+      () => true,
+      () => false
+    )
+    assert.isFalse(setupRanDuringPrepare)
     const defaultCache = await readdir(`${cwd}/node_modules/.cache/japa`).catch(() => [])
     assert.equal(
       defaultCache.some((name) => name.startsWith('index-') || name.startsWith('dependencies-')),
@@ -1306,6 +1312,7 @@ test.describe('Automatic duration history and worker coordination', () => {
       ],
       { cwd, env: { ...process.env, TEST_OBSERVED: `${cwd}/observed-serial.json` } }
     )
+    await access(`${cwd}/setup-ran.json`)
     const observed = JSON.parse(await readFile(`${cwd}/observed-serial.json`, 'utf8'))
     assert.deepEqual(observed.executed, [3])
     const report = await readFile(`${cwd}/report.jsonl`, 'utf8')
@@ -1315,6 +1322,30 @@ test.describe('Automatic duration history and worker coordination', () => {
       .map((line) => JSON.parse(line))
       .at(-1)
     assert.equal(summary.selection.skipped, 5)
+
+    // The same filter without the index must select the same test.
+    await promisify(execFile)(
+      process.execPath,
+      [
+        `--import=${loader}`,
+        entry,
+        '--tests=case 3',
+        ...flags,
+        '--agent',
+        '--agent-all',
+        '--agent-file=noindex.jsonl',
+      ],
+      {
+        cwd,
+        env: {
+          ...process.env,
+          JAPA_NO_SELECTION_INDEX: '1',
+          TEST_OBSERVED: `${cwd}/observed-noindex.json`,
+        },
+      }
+    )
+    const noIndex = JSON.parse(await readFile(`${cwd}/observed-noindex.json`, 'utf8'))
+    assert.deepEqual(noIndex.executed, observed.executed)
   })
 
   test('japa-agent prepares caches and runs through the agent reporter', async (context) => {

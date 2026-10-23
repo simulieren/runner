@@ -62,6 +62,12 @@ async function main() {
     }
     if (updateBaseline && !result.baselineUpdated) {
       console.error('[japa-parallel] baseline not updated: the run was partial or incomplete')
+    } else if (updateBaseline && result.baselineChanges?.added && result.baselineChanges.removed) {
+      console.error(
+        `[japa-parallel] baseline changed in both directions ` +
+          `(${result.baselineChanges.added} added, ${result.baselineChanges.removed} removed); ` +
+          'rerun on a quiet machine if unexpected'
+      )
     }
     const exitCode = signalCode ?? result.exitCode
     console.log(
