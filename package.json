@@ -109,7 +109,8 @@
       "./factories/main.ts",
       "./modules/core/main.ts",
       "./src/parallel.ts",
-      "./bin/parallel.ts"
+      "./bin/parallel.ts",
+      "./bin/agent.ts"
     ],
     "outDir": "./build",
     "clean": true,
@@ -164,6 +165,7 @@
     "packages/core"
   ],
   "bin": {
-    "japa-parallel": "build/bin/parallel.js"
+    "japa-parallel": "build/bin/parallel.js",
+    "japa-agent": "build/bin/agent.js"
   }
 }

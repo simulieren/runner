@@ -38,7 +38,9 @@ For what was tried, what helped, and what was rejected or inconclusive, see the
 ## Faster iteration for agents and harnesses
 
 See [Using Japa from an agent or harness](AGENT_INTEGRATION.md) for the command
-loop, JSON schema, exit codes and cache-trust rules.
+loop, JSON schema, exit codes and cache-trust rules. `japa-agent` packages that
+loop behind one harness-neutral command: it prepares missing caches, runs the
+affected files, and writes the agent stream.
 
 An agent does not run a suite once. It runs part of it, many times, and pays for
 both the wall time and the output it has to read. Four optional features target

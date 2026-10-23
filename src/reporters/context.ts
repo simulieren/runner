@@ -17,6 +17,8 @@ export type AgentContext = {
     mode: 'all' | 'filtered' | 'changed'
     planned: number
     skipped: number
+    /** A filter was requested but could not narrow the import list. */
+    fallback?: boolean
   }
   phases?: {
     bootMs: number

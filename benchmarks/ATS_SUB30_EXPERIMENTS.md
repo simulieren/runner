@@ -536,3 +536,25 @@ Caches were built by `--prepare` and updated by later runs. The full-run identit
 comparison is `p1-full-w6`. Raw logs, JSONL and run records remain under ignored
 `.benchmarks/ats-validation/`. The temporary baseline file was removed and the
 Compose project was stopped after the probes.
+
+### Later timing attempt, still load-affected
+
+With load average 4.2–8.3 (not quiet), the same filtered selection was repeated:
+
+| Variant | Import phase | Wall |
+| --- | ---: | ---: |
+| Index enabled | 860 ms | 5.645 s |
+| `JAPA_NO_SELECTION_INDEX=1` | 3,342 ms | 8.432 s |
+
+A full six-worker run at the same time took **48.105 s** with exactly the 19
+baseline failures and all 8,515 identities. The 26.8–28.1 s range was **not**
+reproduced; this run is recorded as load-affected, not as a regression. Import time
+remains the only stable comparison: about 3.9× less with the index, and the wall
+difference tracks it.
+
+### Coordinator baseline ownership
+
+`--update-baseline` under `japa-parallel` previously let each worker write a
+partial baseline, so the last writer won. Workers now only report their failures;
+the coordinator merges them and writes once, under the same validity gate as
+timing promotion. A partial selection never writes.

@@ -12,6 +12,7 @@ import { mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promis
 import { dirname, join, relative, resolve } from 'node:path'
 import debug from './debug.js'
 import type { PluginFn } from './types.js'
+import type { BaselineEntry } from './failure_baseline.js'
 
 const REGISTERED = new WeakSet<object>()
 
@@ -32,8 +33,16 @@ export type History = {
   durations: DurationMap
   runId?: string
   failedTests?: string[]
+  /** Only written by managed workers when the coordinator collects a baseline. */
+  failures?: BaselineEntry[]
 }
-export type WorkerHistory = History & { worker: number; total: number; complete: boolean }
+export type WorkerHistory = History & {
+  worker: number
+  total: number
+  complete: boolean
+  /** Present when the coordinator asked for baseline collection. */
+  failures?: BaselineEntry[]
+}
 
 export function historyFile(cwd: string, file?: string) {
   if (file) return resolve(cwd, file)
@@ -82,6 +91,18 @@ export function parseHistory(value: unknown, cwd: string): History {
     }
     durations[file] = duration
   }
+  let failures: BaselineEntry[] | undefined
+  if ('failures' in value && Array.isArray(value.failures)) {
+    failures = value.failures.filter((entry): entry is BaselineEntry =>
+      Boolean(
+        entry &&
+        typeof entry === 'object' &&
+        typeof entry.suite === 'string' &&
+        typeof entry.file === 'string' &&
+        typeof entry.title === 'string'
+      )
+    )
+  }
   let failedTests: string[] | undefined
   if ('failedTests' in value) {
     if (
@@ -96,6 +117,7 @@ export function parseHistory(value: unknown, cwd: string): History {
     cwd,
     durations,
     ...(failedTests ? { failedTests } : {}),
+    ...(failures ? { failures } : {}),
     ...('runId' in value && typeof value.runId === 'string' ? { runId: value.runId } : {}),
   }
 }
@@ -172,6 +194,8 @@ export function durationHistory(options: { file?: string } = {}): PluginFn {
     REGISTERED.add(runner)
     const durations: DurationMap = Object.create(null)
     const failedFiles = new Set<string>()
+    const failures: BaselineEntry[] = []
+    const collectFailures = process.env.JAPA_SPEED_COLLECT_FAILURES === '1'
     let suite = 'default'
     let pinned = false
     // A failed suite/group hook can skip tests, leaving file costs incomplete.
@@ -192,7 +216,12 @@ export function durationHistory(options: { file?: string } = {}): PluginFn {
       const path = relative(cwd, file).split('\\').join('/')
       const key = `${suite}:${path}`
       durations[key] = (durations[key] ?? 0) + payload.duration
-      if (payload.hasError) failedFiles.add(key)
+      if (payload.hasError) {
+        failedFiles.add(key)
+        if (collectFailures) {
+          failures.push({ suite, file: path, title: payload.title.expanded })
+        }
+      }
     })
     const offEnd = emitter.on('runner:end', async () => {
       offSuite()
@@ -214,6 +243,7 @@ export function durationHistory(options: { file?: string } = {}): PluginFn {
           total: Number(process.env.JAPA_WORKER_COUNT),
           complete,
           failedTests: runner.getSummary().failedTestsTitles,
+          ...(collectFailures ? { failures } : {}),
           durations: complete ? durations : {},
         })
       } else if (complete) {

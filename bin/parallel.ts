@@ -34,6 +34,7 @@ async function main() {
     } else throw new Error(`Unknown coordinator option: ${option}`)
   }
   const [command, ...args] = cliArguments.slice(separator + 1)
+  const updateBaseline = args.includes('--update-baseline')
   const controller = new AbortController()
   let signalCode: number | undefined
   const interrupt = () => {
@@ -53,6 +54,7 @@ async function main() {
       workers,
       historyFile,
       cwd,
+      updateBaseline,
       signal: controller.signal,
     })
     for (const worker of result.workers) {
@@ -60,7 +62,7 @@ async function main() {
     }
     const exitCode = signalCode ?? result.exitCode
     console.log(
-      `[japa-parallel] workers=${result.workers.length} exit=${exitCode} timings=${result.historyUpdated ? 'updated' : 'unchanged'}`
+      `[japa-parallel] workers=${result.workers.length} exit=${exitCode} timings=${result.historyUpdated ? 'updated' : 'unchanged'}${result.baselineUpdated ? ' baseline=updated' : ''}`
     )
     return exitCode
   } finally {

@@ -276,6 +276,16 @@ export async function run() {
     const plannedAt = performance.now()
     const { config, reporters, suites, refinerFilters } = await new Planner(runnerConfig!).plan()
 
+    /** Whether the caller asked for less than the whole suite. */
+    const requestedSelection = Boolean(
+      cliArgs.changed ||
+      cliArgs.tests ||
+      cliArgs.groups ||
+      cliArgs.tags ||
+      cliArgs.files ||
+      cliArgs.failed
+    )
+
     if (cliArgs.reporterAgent || cliArgs.agentFile) {
       const { setAgentContext } = await import('./src/reporters/context.js')
       const stats = runnerConfig!.selectionStats
@@ -288,6 +298,9 @@ export async function run() {
               : 'all',
           planned: stats?.planned ?? 0,
           skipped: stats ? stats.collected - stats.planned : 0,
+          ...(requestedSelection && !(stats && stats.planned < stats.collected)
+            ? { fallback: true }
+            : {}),
         },
         phases: {
           // Process uptime includes application boot before `run()` was called.
@@ -453,7 +466,9 @@ export async function run() {
       const { readBaseline, diffFailures, writeBaseline, baselineFile } =
         await import('./src/failure_baseline.js')
       const file = baselineFile(runnerConfig!.cwd)
-      if (cliArgs.updateBaseline) {
+      // Managed workers must not write: each sees one shard, so the last write
+      // would erase the others. The coordinator merges their reports instead.
+      if (cliArgs.updateBaseline && !process.env.JAPA_SPEED_RUN_ID) {
         await writeBaseline(file, { version: 1, failures: runFailures.failures })
       }
       if (cliArgs.allowKnownFailures) {

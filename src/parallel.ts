@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path'
 import { availableParallelism } from 'node:os'
 import debug from './debug.js'
 import { getFailedTests, cacheFailedTests } from './plugins/retry_cache.js'
+import { baselineFile, writeBaseline, type BaselineEntry } from './failure_baseline.js'
 import {
   blendDuration,
   historyFile,
@@ -39,11 +40,14 @@ export type ParallelOptions = {
    * resolving its module graph at the same instant.
    */
   startStaggerMs?: number
+  /** Merge worker failures and write the baseline from the coordinator. */
+  updateBaseline?: boolean
 }
 
 export type ParallelResult = {
   exitCode: number
   historyUpdated: boolean
+  baselineUpdated: boolean
   workers: { worker: number; exitCode: number; signal?: NodeJS.Signals; error?: string }[]
 }
 
@@ -79,6 +83,7 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
   const file = historyFile(cwd, options.historyFile)
   const history = await readHistory(file, cwd)
   const failed = await getFailedTests(cwd).catch(() => ({}) as { tests?: string[] })
+  if (options.updateBaseline) process.env.JAPA_SPEED_COLLECT_FAILURES = '1'
   const runId = randomUUID()
   // Evaluate environment callbacks before spawning anything, so a configuration
   // error cannot leave a partially launched pool behind.
@@ -159,6 +164,7 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
                   JAPA_SPEED_RUN_ID: runId,
                   JAPA_SPEED_SNAPSHOT: snapshot,
                   JAPA_SPEED_OUTPUT: join(directory, `${worker}.json`),
+                  ...(options.updateBaseline ? { JAPA_SPEED_COLLECT_FAILURES: '1' } : {}),
                 },
               }
             )
@@ -177,6 +183,8 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
     if (escalation) await escalation
     let exitCode = aborted ? 130 : (workers.find((worker) => worker.exitCode !== 0)?.exitCode ?? 0)
     let historyUpdated = false
+    let baselineUpdated = false
+    const baselineFailures: BaselineEntry[] = []
     const estimates: DurationMap = Object.create(null)
     let complete = true
     let validReports = true
@@ -202,6 +210,7 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
             throw new Error('Invalid coordinated worker result')
           if (!result.failedTests) throw new Error('Missing failed-test worker report')
           for (const title of result.failedTests) failures.add(title)
+          if (result.failures) baselineFailures.push(...result.failures)
           complete &&= raw.complete
           for (const [key, duration] of Object.entries(result.durations)) {
             if (Object.hasOwn(estimates, key))
@@ -241,9 +250,20 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
           historyUpdated = false
         }
       }
+
+      // Same gate as timings: a cancelled, partial or unreported run must not
+      // replace a committed baseline with a slice of the suite.
+      if (options.updateBaseline && validReports && finished && complete && !aborted) {
+        try {
+          await writeBaseline(baselineFile(cwd), { version: 1, failures: baselineFailures })
+          baselineUpdated = true
+        } catch (error) {
+          debug('unable to write the failure baseline: %O', error)
+        }
+      }
     }
     if (escalation) await escalation
-    return { exitCode: aborted ? 130 : exitCode, historyUpdated, workers }
+    return { exitCode: aborted ? 130 : exitCode, historyUpdated, baselineUpdated, workers }
   } finally {
     options.signal?.removeEventListener('abort', abort)
     await rm(directory, { recursive: true, force: true })

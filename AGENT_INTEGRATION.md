@@ -6,6 +6,36 @@ tell real regressions apart from known failures.
 
 Everything here is opt-in. A plain `npm test` behaves exactly as before.
 
+## One command for any harness
+
+`japa-agent` wraps the loop and only composes Japa flags, so it works with any
+command that forwards arguments to Japa — pi, Claude Code, Codex, CI, a shell
+script, or a Makefile. It has no editor- or vendor-specific integration.
+
+```sh
+# app whose test entry is bin/test.ts
+npx japa-agent -- node --import=@poppinss/ts-exec bin/test.ts
+
+# TypeScript app with a suite argument, and a custom report path
+npx japa-agent --cwd=apps/web --out=/tmp/japa.jsonl -- node bin/test.js unit
+```
+
+Behavior:
+
+1. If the selection caches are missing, run the command once with `--prepare`
+   (selection flags stripped) and stop if it fails.
+2. Run the command with `--agent --agent-file=<out>` and, unless the forwarded
+   arguments already contain a selection or `--full` is passed, `--changed=auto`.
+3. Leave stdout to the application and print `japa-agent: exit=N report=<path>`
+   on stderr.
+4. Exit with the test command's code (0 / 1 / 2).
+
+Options: `--cwd`, `--out` (default `node_modules/.cache/japa/agent.jsonl`),
+`--full`, `--no-prepare`, `--timeout`.
+
+If the harness wants to own selection, pass `--tests`/`--changed` itself; the
+wrapper will not add `--changed=auto`.
+
 ## The loop
 
 ```sh
@@ -66,9 +96,9 @@ One JSON object per line:
 - `compact` (on for `--agent`) omits stacks after the first occurrence of an error
   and reports `errorGroups` in the summary.
 - `errors[].location` is the first stack frame outside `node_modules`.
-- `selection.skipped > 0` means files were pruned. `mode: "all"` with a narrow
-  filter means a fallback happened — the selection could not be trusted, so
-  everything ran.
+- `selection.skipped > 0` means files were pruned. `selection.fallback: true`
+  means a filter was requested but could not narrow the import list, so the whole
+  suite ran. A harness can warn or escalate on that field.
 - Every line is capped at 4000 characters.
 
 ## Trust rules

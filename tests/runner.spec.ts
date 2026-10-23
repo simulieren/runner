@@ -1266,6 +1266,84 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.deepEqual(index.files['file.spec.ts'].groups, ['group'])
   })
 
+  test('japa-agent prepares caches and runs through the agent reporter', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { readFile, writeFile } = await import('node:fs/promises')
+    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    const { fileURLToPath } = await import('node:url')
+
+    const wrapper = fileURLToPath(new URL('../bin/agent.ts', import.meta.url))
+    const result = await promisify(execFile)(
+      process.execPath,
+      [
+        `--import=${loader}`,
+        wrapper,
+        '--cwd',
+        cwd,
+        '--out',
+        'report.jsonl',
+        '--',
+        process.execPath,
+        `--import=${loader}`,
+        entry,
+      ],
+      { cwd }
+    ).then(
+      (value) => ({ code: 0, stderr: value.stderr }),
+      (error: { code?: number; stderr?: string }) => ({
+        code: error.code ?? 1,
+        stderr: error.stderr,
+      })
+    )
+    assert.equal(result.code, 0, result.stderr)
+
+    const raw = await readFile(`${cwd}/report.jsonl`, 'utf8')
+    const lines = raw
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    assert.equal(lines.at(-1).t, 'summary')
+    assert.equal(lines.at(-1).ok, true)
+    // No git repository, so --changed=auto falls back to everything.
+    assert.equal(lines.at(-1).selection.fallback, true)
+  })
+
+  test('merge baseline failures once in the coordinator, not per worker', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { readFile } = await import('node:fs/promises')
+    const { runParallel } = await import('../src/parallel.js')
+    const options = {
+      command: process.execPath,
+      args: [`--import=${loader}`, entry, '--update-baseline'],
+      cwd,
+      workers: 2,
+      historyFile: 'history.json',
+      stdio: 'ignore' as const,
+      updateBaseline: true,
+    }
+    const result = await runParallel({ ...options, env: { TEST_FAIL: '1' } })
+    assert.notEqual(result.exitCode, 0)
+    assert.isTrue(result.baselineUpdated)
+
+    const baseline = JSON.parse(await readFile(`${cwd}/japa.baseline.json`, 'utf8'))
+    assert.deepEqual(baseline.failures.map((failure: { file: string }) => failure.file).sort(), [
+      'file0.spec.ts',
+      'file1.spec.ts',
+    ])
+
+    // A partial selection must not replace the baseline with a slice.
+    const { rm } = await import('node:fs/promises')
+    await rm(`${cwd}/japa.baseline.json`)
+    const partial = await runParallel({
+      ...options,
+      args: [...options.args, '--tests=case 0'],
+      env: { TEST_FAIL: '1' },
+    })
+    assert.isFalse(partial.baselineUpdated)
+  })
+
   test('stagger worker startup without changing the plan or the results', async (context) => {
     const { cwd, entry, loader } = await fixture(context)
     const { readFile } = await import('node:fs/promises')
