@@ -142,6 +142,8 @@ export function mergeBaseline(
 
   for (const entry of observed) {
     const key = keyOf(entry)
+    // Retries may report the same failure more than once in a single run.
+    if (seen.has(key)) continue
     seen.add(key)
     const old = existing.get(key)
     const merged: BaselineEntry = {
@@ -186,10 +188,12 @@ export function diffFailures(
   options: { fullRun?: boolean } = {}
 ): { new: BaselineEntry[]; known: BaselineEntry[]; fixed: BaselineEntry[] } {
   const expected = new Set(baseline.failures.map(keyOf))
-  const seen = new Set(failures.map(keyOf))
+  const observed = new Map<string, BaselineEntry>()
+  for (const failure of failures) observed.set(keyOf(failure), failure)
+  const seen = new Set(observed.keys())
   const fresh: BaselineEntry[] = []
   const known: BaselineEntry[] = []
-  for (const failure of failures) {
+  for (const failure of observed.values()) {
     ;(expected.has(keyOf(failure)) ? known : fresh).push(failure)
   }
   // A slice cannot tell a passing test from a test that was never selected.

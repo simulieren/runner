@@ -1443,6 +1443,35 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.deepEqual(after, full)
   })
 
+  test('never write a baseline when global teardown fails', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { access, writeFile } = await import('node:fs/promises')
+    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    const result = await promisify(execFile)(
+      process.execPath,
+      [`--import=${loader}`, entry, '--update-baseline'],
+      {
+        cwd,
+        env: {
+          ...process.env,
+          TEST_FAIL: '1',
+          TEST_GLOBAL_TEARDOWN_FAIL: '1',
+        },
+      }
+    ).then(
+      () => ({ code: 0 }),
+      (error: { code?: number }) => ({ code: error.code })
+    )
+    assert.notEqual(result.code, 0)
+    const exists = await access(`${cwd}/japa.baseline.json`).then(
+      () => true,
+      () => false
+    )
+    assert.isFalse(exists)
+  })
+
   test('merge baseline failures once in the coordinator, not per worker', async (context) => {
     const { cwd, entry, loader } = await fixture(context)
     const { readFile } = await import('node:fs/promises')
@@ -1711,6 +1740,19 @@ test.describe('Agent loop safety', () => {
     const { autoWorkerCount } = await import('../src/parallel.js')
     assert.equal(autoWorkerCount(['--files=user']), 1)
     assert.equal(autoWorkerCount(['--failed']), 1)
+  })
+
+  test('merge repeated retry failures once', async () => {
+    const { diffFailures, mergeBaseline } = await import('../src/failure_baseline.js')
+    const entry = { suite: 'default', file: 'a.spec.ts', title: 'a' }
+    const merged = mergeBaseline({ version: 1, failures: [] }, [entry, entry])
+    assert.lengthOf(merged.baseline.failures, 1)
+    assert.equal(merged.baseline.failures[0].consecutive, 1)
+    assert.lengthOf(merged.added, 1)
+
+    const baseline = { version: 1 as const, failures: [entry] }
+    const diff = diffFailures(baseline, [entry, entry])
+    assert.lengthOf(diff.known, 1)
   })
 
   test('reject an invalid japa-agent timeout', async () => {

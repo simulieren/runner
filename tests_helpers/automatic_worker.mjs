@@ -61,6 +61,13 @@ configure({
       await writeFile(resolve('setup-ran.json'), '1')
     },
   ],
+  teardown: [
+    async () => {
+      if (process.env.TEST_GLOBAL_TEARDOWN_FAIL === '1') {
+        throw new Error('Expected fixture global teardown failure')
+      }
+    },
+  ],
   reporters: { activated: [], list: [] },
   importer(url) {
     imported.push(url.href.split('/').pop())

@@ -490,6 +490,7 @@ export async function run() {
     const execStartedAt = performance.now()
     await runner.start()
     await runner.exec()
+    await globalHooks.teardown(null, runner)
     const nonTestErrors = Boolean(runFailures?.hasNonTestError()) || exceptionsManager.hasErrors
 
     if (cliArgs.reporterAgent || cliArgs.agentFile) {
@@ -571,7 +572,6 @@ export async function run() {
       }
     }
 
-    await globalHooks.teardown(null, runner)
     await runner.end()
     if (!process.env.JAPA_SPEED_RUN_ID) {
       const { flushDependencies } = await import('./src/dependencies.js')
