@@ -49,8 +49,8 @@ export type ParallelResult = {
 
 /**
  * A narrow selection usually costs less than the extra application boots a pool
- * would pay. Title/tag/group/change filters therefore run on one worker unless
- * the caller asked for a specific count.
+ * would pay. Title/file/tag/group/change/failed filters therefore run on one
+ * worker unless the caller asked for a specific count.
  */
 export function autoWorkerCount(args: string[]) {
   const narrow = args.some(
@@ -58,6 +58,8 @@ export function autoWorkerCount(args: string[]) {
       arg.startsWith('--tests') ||
       arg.startsWith('--groups') ||
       arg.startsWith('--tags') ||
+      arg.startsWith('--files') ||
+      arg.startsWith('--failed') ||
       arg.startsWith('--changed')
   )
   return narrow ? 1 : Math.min(4, availableParallelism())
@@ -182,6 +184,7 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
     const baselineFailures: BaselineEntry[] = []
     const estimates: DurationMap = Object.create(null)
     let complete = true
+    let fullRun = true
     let validReports = true
     const failures = new Set<string>()
     if (!aborted) {
@@ -207,6 +210,7 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
           for (const title of result.failedTests) failures.add(title)
           if (result.failures) baselineFailures.push(...result.failures)
           complete &&= raw.complete
+          fullRun &&= result.fullRun === true
           for (const [key, duration] of Object.entries(result.durations)) {
             if (Object.hasOwn(estimates, key))
               throw new Error(`Workers reported the same file: ${key}`)
@@ -250,7 +254,7 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
 
       // Same gate as timings: a cancelled, partial or unreported run must not
       // replace a committed baseline with a slice of the suite.
-      if (options.updateBaseline && validReports && finished && complete && !aborted) {
+      if (options.updateBaseline && validReports && finished && complete && fullRun && !aborted) {
         try {
           const update = await updateBaseline(baselineFile(cwd), baselineFailures)
           baselineChanges = {

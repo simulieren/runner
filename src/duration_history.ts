@@ -34,6 +34,8 @@ export type History = {
   durations: DurationMap
   runId?: string
   failedTests?: string[]
+  /** Managed worker ran the whole suite, not a selection. */
+  fullRun?: boolean
   /** Only written by managed workers when the coordinator collects a baseline. */
   failures?: BaselineEntry[]
 }
@@ -91,6 +93,11 @@ export function parseHistory(value: unknown, cwd: string): History {
       )
     )
   }
+  let fullRun: boolean | undefined
+  if ('fullRun' in value) {
+    if (typeof value.fullRun !== 'boolean') throw new Error('Invalid full-run history')
+    fullRun = value.fullRun
+  }
   let failedTests: string[] | undefined
   if ('failedTests' in value) {
     if (
@@ -105,6 +112,7 @@ export function parseHistory(value: unknown, cwd: string): History {
     cwd,
     durations,
     ...(failedTests ? { failedTests } : {}),
+    ...(fullRun !== undefined ? { fullRun } : {}),
     ...(failures ? { failures } : {}),
     ...('runId' in value && typeof value.runId === 'string' ? { runId: value.runId } : {}),
   }
@@ -220,20 +228,35 @@ export function durationHistory(options: { file?: string } = {}): PluginFn {
       const partial =
         pinned ||
         (['tests', 'groups', 'tags'] as const).some((filter) => config.filters[filter]?.length)
+      const fullRun =
+        !partial &&
+        !hookFailed &&
+        !cliArgs.listPinned &&
+        !cliArgs.failed &&
+        !cliArgs.changed &&
+        !cliArgs.bail &&
+        !config.filters.files?.length &&
+        !config.filters.suites?.length
       const complete = !partial && !hookFailed
       for (const key of failedFiles) delete durations[key]
       if (managed) {
-        await writeHistory(output!, {
-          version: 1,
-          cwd,
-          runId,
-          worker: Number(process.env.JAPA_WORKER_ID),
-          total: Number(process.env.JAPA_WORKER_COUNT),
-          complete,
-          failedTests: runner.getSummary().failedTestsTitles,
-          ...(collectFailures ? { failures } : {}),
-          durations: complete ? durations : {},
-        })
+        try {
+          await writeHistory(output!, {
+            version: 1,
+            cwd,
+            runId,
+            worker: Number(process.env.JAPA_WORKER_ID),
+            total: Number(process.env.JAPA_WORKER_COUNT),
+            complete,
+            fullRun,
+            failedTests: runner.getSummary().failedTestsTitles,
+            ...(collectFailures ? { failures } : {}),
+            durations: complete ? durations : {},
+          })
+        } catch (error) {
+          // A result that cannot be written is a lost timing sample, not a test failure.
+          debug('unable to write worker timings: %O', error)
+        }
       } else if (complete) {
         try {
           const file = historyFile(cwd, options.file)

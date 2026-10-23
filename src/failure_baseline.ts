@@ -83,14 +83,19 @@ export async function writeBaseline(file: string, baseline: Baseline) {
 
 /**
  * Collect this run's failing tests in baseline form. Attach before the run
- * starts; the returned function detaches the listener.
+ * starts; the returned function detaches the listener. Suite and group errors
+ * are tracked separately: they must never be suppressed by a known-failure
+ * baseline, because they usually mean setup or teardown did not complete.
  */
 export function collectFailures(
-  emitter: { on(event: 'test:end', handler: (payload: any) => void): () => void },
+  emitter: {
+    on(event: 'test:end' | 'group:end' | 'suite:end', handler: (payload: any) => void): () => void
+  },
   cwd: string
 ) {
   const failures: BaselineEntry[] = []
-  const stop = emitter.on('test:end', (payload) => {
+  let nonTestError = false
+  const stopTest = emitter.on('test:end', (payload) => {
     if (!payload.hasError) return
     const file = payload.meta?.fileName
     if (typeof file !== 'string') return
@@ -100,7 +105,21 @@ export function collectFailures(
       title: payload.title.expanded,
     })
   })
-  return { failures, stop }
+  const stopGroup = emitter.on('group:end', (payload) => {
+    if (payload.errors?.length) nonTestError = true
+  })
+  const stopSuite = emitter.on('suite:end', (payload) => {
+    if (payload.errors?.length) nonTestError = true
+  })
+  return {
+    failures,
+    hasNonTestError: () => nonTestError,
+    stop() {
+      stopTest()
+      stopGroup()
+      stopSuite()
+    },
+  }
 }
 
 /**
@@ -163,7 +182,8 @@ export async function updateBaseline(file: string, observed: BaselineEntry[]) {
  */
 export function diffFailures(
   baseline: Baseline,
-  failures: BaselineEntry[]
+  failures: BaselineEntry[],
+  options: { fullRun?: boolean } = {}
 ): { new: BaselineEntry[]; known: BaselineEntry[]; fixed: BaselineEntry[] } {
   const expected = new Set(baseline.failures.map(keyOf))
   const seen = new Set(failures.map(keyOf))
@@ -172,6 +192,8 @@ export function diffFailures(
   for (const failure of failures) {
     ;(expected.has(keyOf(failure)) ? known : fresh).push(failure)
   }
-  const fixed = baseline.failures.filter((entry) => !seen.has(keyOf(entry)))
+  // A slice cannot tell a passing test from a test that was never selected.
+  const fixed =
+    options.fullRun === false ? [] : baseline.failures.filter((entry) => !seen.has(keyOf(entry)))
   return { new: fresh, known, fixed }
 }

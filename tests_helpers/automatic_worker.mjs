@@ -68,6 +68,9 @@ configure({
     const define = () =>
       test(`case ${index}`, async () => {
         executed.push(index)
+        if (process.env.TEST_LONG_ERROR === '1' && index === 0) {
+          throw new Error('x'.repeat(10_000))
+        }
         if (process.env.TEST_FAIL === '1' && index < 2) throw new Error('Expected fixture failure')
         await new Promise((done) => setTimeout(done, costs[index]))
       })

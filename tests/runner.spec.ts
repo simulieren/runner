@@ -1475,6 +1475,13 @@ test.describe('Automatic duration history and worker coordination', () => {
       env: { TEST_FAIL: '1' },
     })
     assert.isFalse(partial.baselineUpdated)
+
+    const changed = await runParallel({
+      ...options,
+      args: [...options.args, '--changed=file0.spec.ts'],
+      env: { TEST_FAIL: '1' },
+    })
+    assert.isFalse(changed.baselineUpdated)
   })
 
   test('compare failures against a baseline and report agent-readable results', async (context) => {
@@ -1517,6 +1524,15 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.deepEqual(lines.at(-1).event, 'summary')
     assert.equal(lines.at(-1).ok, false)
 
+    // A pathological error is clipped without turning the JSON line invalid.
+    const long = await run(['--agent'], { TEST_LONG_ERROR: '1' })
+    assert.equal(long.code, 1)
+    const longLines = String(long.stdout).trim().split('\n')
+    for (const line of longLines) {
+      assert.isAtMost(line.length, 4000)
+      assert.doesNotThrow(() => JSON.parse(line))
+    }
+
     // Record those failures, then the same run is accepted as known.
     await run(['--update-baseline'], { TEST_FAIL: '1' })
     const baseline = JSON.parse(await readFile(`${cwd}/japa.baseline.json`, 'utf8'))
@@ -1525,6 +1541,10 @@ test.describe('Automatic duration history and worker coordination', () => {
 
     const known = await run(['--allow-known-failures'], { TEST_FAIL: '1' })
     assert.equal(known.code, 0)
+
+    // A setup/hook error is not a known test failure and must stay red.
+    const hook = await run(['--allow-known-failures'], { TEST_FAIL: '1', TEST_HOOK_FAIL: '1' })
+    assert.equal(hook.code, 1)
 
     // A test that fails for a different reason has a different identity, so it
     // is a regression even though the title matches nothing in the baseline.
@@ -1654,5 +1674,42 @@ test.describe('Automatic duration history and worker coordination', () => {
     const { readHistory } = await import('../src/duration_history.js')
     const history = await readHistory(`${cwd}/history.json`, cwd, true)
     assert.lengthOf(Object.keys(history.durations), 6)
+  })
+})
+
+test.describe('Agent loop safety', () => {
+  test('never prune files for a negated tag filter', async () => {
+    const { shouldSkipFile } = await import('../src/selection_index.js')
+    const entry = { mtimeMs: 0, size: 0, tests: [], groups: [], tags: ['@github'] }
+    assert.isFalse(shouldSkipFile(entry, { tags: ['~@github'] }))
+    assert.isFalse(shouldSkipFile(entry, { tags: ['!slow'] }))
+    assert.isTrue(shouldSkipFile(entry, { tags: ['@unit'] }))
+  })
+
+  test('treat a missing current summary as a non-comparable delta', async () => {
+    const { diffReports } = await import('../src/agent_delta.js')
+    const delta = diffReports({ summary: { total: 1 }, failures: [] }, { failures: [] })
+    assert.isFalse(delta.comparable)
+    assert.deepEqual(delta.counts, { previous: 0, current: 0, new: 0, fixed: 0 })
+  })
+
+  test('do not report fixed failures from a partial selection', async () => {
+    const { diffFailures } = await import('../src/failure_baseline.js')
+    const baseline = {
+      version: 1 as const,
+      failures: [
+        { suite: 'default', file: 'a.spec.ts', title: 'a' },
+        { suite: 'default', file: 'b.spec.ts', title: 'b' },
+      ],
+    }
+    const observed = [baseline.failures[0]]
+    assert.lengthOf(diffFailures(baseline, observed, { fullRun: false }).fixed, 0)
+    assert.lengthOf(diffFailures(baseline, observed).fixed, 1)
+  })
+
+  test('treat file and failed filters as narrow selections', async () => {
+    const { autoWorkerCount } = await import('../src/parallel.js')
+    assert.equal(autoWorkerCount(['--files=user']), 1)
+    assert.equal(autoWorkerCount(['--failed']), 1)
   })
 })

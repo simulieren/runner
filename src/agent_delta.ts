@@ -24,6 +24,7 @@ export type AgentSelection = {
 
 export type AgentSummary = {
   total: number
+  knownOnly?: boolean
   selection?: AgentSelection
   phases?: { bootMs?: number; importMs?: number; testMs?: number }
 }
@@ -64,6 +65,7 @@ export function parseAgentReport(text: string): ParsedAgentReport {
     if (kind === 'summary' && typeof record.total === 'number') {
       summary = {
         total: record.total,
+        ...(typeof record.knownOnly === 'boolean' ? { knownOnly: record.knownOnly } : {}),
         ...(record.selection && typeof record.selection === 'object'
           ? { selection: record.selection as AgentSelection }
           : {}),
@@ -95,7 +97,9 @@ export function diffReports(
   previous: ParsedAgentReport | undefined,
   current: ParsedAgentReport
 ): AgentDelta {
-  const comparable = Boolean(previous && sameSelection(previous.summary, current.summary!))
+  const comparable = Boolean(
+    previous?.summary && current.summary && sameSelection(previous.summary, current.summary)
+  )
   const before = new Map((previous?.failures ?? []).map((row) => [keyOf(row), row]))
   const after = new Map(current.failures.map((row) => [keyOf(row), row]))
 

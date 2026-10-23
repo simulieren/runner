@@ -47,14 +47,14 @@ function oneLine(value: unknown) {
 }
 
 /** First stack frame that is not a Node internal, as a relative file and line. */
-function locationOf(error: unknown): { file: string; line: number } | undefined {
+function locationOf(error: unknown, cwd: string): { file: string; line: number } | undefined {
   if (!(error instanceof Error) || !error.stack) return undefined
   for (const raw of error.stack.split('\n').slice(1)) {
     const match = /\(?((?:file:\/\/)?[^()\s]+):(\d+):(\d+)\)?$/.exec(raw.trim())
     if (!match) continue
     const path = match[1].replace(/^file:\/\//, '')
     if (path.startsWith('node:') || path.includes('/node_modules/')) continue
-    return { file: relative(process.cwd(), path), line: Number(match[2]) }
+    return { file: relative(cwd, path), line: Number(match[2]) }
   }
   return undefined
 }
@@ -62,6 +62,51 @@ function locationOf(error: unknown): { file: string; line: number } | undefined 
 function errorKey(error: unknown) {
   if (error instanceof Error) return `${error.name}\u0000${oneLine(error.message)}`
   return `Error\u0000${oneLine(error)}`
+}
+
+/**
+ * Shrink a record while keeping it valid JSON. Truncating an already serialized
+ * line would turn a pathological failure into unparseable output.
+ */
+function shrinkLine(record: Record<string, unknown>) {
+  const minimal: Record<string, unknown> = { event: record.event, truncated: true }
+  for (const key of ['status', 'file', 'group', 'title', 'suite', 'durationMs']) {
+    if (record[key] !== undefined) minimal[key] = record[key]
+  }
+  const first = Array.isArray(record.errors) ? record.errors[0] : undefined
+  if (first !== undefined) {
+    if (first && typeof first === 'object') {
+      const error = first as Record<string, unknown>
+      minimal.errors = [
+        {
+          name: error.name,
+          message: clip(oneLine(error.message), 1).slice(0, 500),
+        },
+      ]
+    } else {
+      minimal.errors = [{ message: clip(oneLine(first), 1).slice(0, 500) }]
+    }
+  }
+
+  let line = JSON.stringify(minimal)
+  if (line.length > MAX_LINE_CHARS) {
+    for (const key of ['status', 'file', 'group', 'title', 'suite']) {
+      if (typeof minimal[key] === 'string') minimal[key] = (minimal[key] as string).slice(0, 200)
+    }
+    if (
+      Array.isArray(minimal.errors) &&
+      minimal.errors[0] &&
+      typeof minimal.errors[0] === 'object'
+    ) {
+      const error = minimal.errors[0] as Record<string, unknown>
+      if (typeof error.message === 'string') error.message = error.message.slice(0, 200)
+    }
+    line = JSON.stringify(minimal)
+  }
+  if (line.length > MAX_LINE_CHARS) {
+    line = JSON.stringify({ event: record.event, truncated: true })
+  }
+  return line
 }
 
 /**
@@ -87,9 +132,9 @@ export class AgentReporter extends BaseReporter {
   }
 
   #emit(record: Record<string, unknown>) {
-    const line = JSON.stringify(record)
-    const output =
-      line.length > MAX_LINE_CHARS ? `${line.slice(0, MAX_LINE_CHARS)}…\n` : `${line}\n`
+    const serialized = JSON.stringify(record)
+    const line = serialized.length > MAX_LINE_CHARS ? shrinkLine(record) : serialized
+    const output = `${line}\n`
     if (!this.#file) {
       process.stdout.write(output)
       return
@@ -101,7 +146,11 @@ export class AgentReporter extends BaseReporter {
     writeSync(this.#fd, output)
   }
 
-  #serialize(error: unknown) {
+  #cwd() {
+    return this.runner ? (getAgentContext(this.runner).cwd ?? process.cwd()) : process.cwd()
+  }
+
+  #serialize(error: unknown, cwd = this.#cwd()) {
     const key = errorKey(error)
     const previous = this.#seen.get(key) ?? 0
     this.#seen.set(key, previous + 1)
@@ -114,7 +163,7 @@ export class AgentReporter extends BaseReporter {
       }
     }
 
-    const location = locationOf(error)
+    const location = locationOf(error, cwd)
     return {
       name: error instanceof Error ? error.name : 'Error',
       message: clip(oneLine(error instanceof Error ? error.message : error), MAX_MESSAGE_LINES),
@@ -137,17 +186,18 @@ export class AgentReporter extends BaseReporter {
 
     if (this.#onlyFailures && status === 'passed') return
 
+    const cwd = this.#cwd()
     this.#emit({
       event: 'test',
       status,
-      file: file ? relative(process.cwd(), file) : undefined,
+      file: file ? relative(cwd, file) : undefined,
       group: payload.meta?.group?.title,
       title: payload.title.expanded,
       durationMs: Math.round(payload.duration * 1000) / 1000,
       ...(payload.retryAttempt ? { attempt: payload.retryAttempt } : {}),
       ...(payload.skipReason ? { reason: payload.skipReason } : {}),
       ...(payload.errors.length
-        ? { errors: payload.errors.map((e) => this.#serialize(e.error)) }
+        ? { errors: payload.errors.map((e) => this.#serialize(e.error, cwd)) }
         : {}),
     })
   }
@@ -183,6 +233,13 @@ export class AgentReporter extends BaseReporter {
       ...(context.selection ? { selection: context.selection } : {}),
       ...(context.phases ? { phases: context.phases } : {}),
       ...(context.baseline ? { baseline: context.baseline } : {}),
+      ...(context.baseline &&
+      context.baseline.known > 0 &&
+      context.baseline.new === 0 &&
+      !context.nonTestErrors
+        ? { knownOnly: true }
+        : {}),
+      ...(context.nonTestErrors ? { nonTestErrors: true } : {}),
       ...(repeats.length
         ? {
             errorGroups: repeats.map(([key, count]) => ({

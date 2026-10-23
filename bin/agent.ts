@@ -35,7 +35,24 @@ type Options = {
   cacheDir?: string
 }
 
-const SELECTION_FLAGS = /^--(tests|groups|tags|files|failed|changed)(=|$)/
+const SELECTION_FLAGS = /^--(tests|groups|tags|files|failed|changed|shard)(=|$)/
+const SELECTION_VALUE = /^--(tests|groups|tags|files|changed|shard)$/
+
+/** Remove selection flags and their separate values before preparing caches. */
+function withoutSelectionFlags(args: string[]) {
+  const kept: string[] = []
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]
+    if (!SELECTION_FLAGS.test(arg)) {
+      kept.push(arg)
+      continue
+    }
+    if (SELECTION_VALUE.test(arg) && args[index + 1] && !args[index + 1].startsWith('--')) {
+      index++
+    }
+  }
+  return kept
+}
 
 function parse(argv: string[]): { options: Options; command: string[] } {
   const separator = argv.indexOf('--')
@@ -183,7 +200,7 @@ async function main() {
     // every file rather than only the ones a filter would have imported.
     const prepareStarted = performance.now()
     const prepareArgs = [
-      ...args.filter((arg) => !SELECTION_FLAGS.test(arg)),
+      ...withoutSelectionFlags(args),
       ...cacheArgs,
       '--prepare-caches',
       '--force-exit',

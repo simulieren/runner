@@ -232,6 +232,7 @@ export async function run() {
      * Executing the retry plugin as the first thing
      */
     await retryPlugin({ config: runnerConfig!, runner, emitter, cliArgs })
+    const preparing = Boolean(cliArgs.prepareCaches)
 
     // The coordinator's environment enables history without an app-config edit.
     if (
@@ -251,7 +252,16 @@ export async function run() {
     if (!process.env.JAPA_SPEED_RUN_ID) {
       const { changedSelection, recordDependencies } = await import('./src/dependencies.js')
       const dependencyOptions = { dir: cliArgs.cacheDir }
-      await changedSelection(dependencyOptions)({ config: runnerConfig!, runner, emitter, cliArgs })
+      // Preparing caches must import every file, even if selection flags were
+      // also supplied, otherwise --changed would learn from a slice.
+      if (!preparing) {
+        await changedSelection(dependencyOptions)({
+          config: runnerConfig!,
+          runner,
+          emitter,
+          cliArgs,
+        })
+      }
       await recordDependencies(dependencyOptions)({
         config: runnerConfig!,
         runner,
@@ -260,7 +270,7 @@ export async function run() {
       })
     }
 
-    if (!process.env.JAPA_NO_SELECTION_INDEX) {
+    if (!process.env.JAPA_NO_SELECTION_INDEX && !preparing) {
       const { selectionIndex } = await import('./src/selection_index.js')
       // `--changed` already set the selection; do not let the title index widen it.
       if (!cliArgs.changed) {
@@ -322,6 +332,7 @@ export async function run() {
           importMs: 0,
           testMs: 0,
         },
+        cwd: runnerConfig!.cwd,
       })
     }
 
@@ -351,7 +362,6 @@ export async function run() {
      */
     // Preparing caches only needs imports. Skipping app setup keeps it cheap and
     // avoids touching databases that the caller did not reset.
-    const preparing = Boolean(cliArgs.prepareCaches)
     if (!cliArgs.listPinned && !preparing) {
       await globalHooks.setup(runner)
     }
@@ -472,6 +482,7 @@ export async function run() {
     const execStartedAt = performance.now()
     await runner.start()
     await runner.exec()
+    const nonTestErrors = Boolean(runFailures?.hasNonTestError()) || exceptionsManager.hasErrors
 
     if (cliArgs.reporterAgent || cliArgs.agentFile) {
       const { setAgentContext, getAgentContext } = await import('./src/reporters/context.js')
@@ -502,12 +513,15 @@ export async function run() {
         !cliArgs.listPinned &&
         !cliArgs.failed &&
         !cliArgs.changed &&
+        !cliArgs.bail &&
         !filters.shard &&
+        !filters.suites?.length &&
         !filters.tests?.length &&
         !filters.groups?.length &&
         !filters.tags?.length &&
         !filters.files?.length
-      if (cliArgs.updateBaseline && isFullRun) {
+      const canUpdateBaseline = isFullRun && !nonTestErrors
+      if (cliArgs.updateBaseline && canUpdateBaseline) {
         const update = await updateBaseline(file, runFailures.failures)
         if (update.added.length && update.removed.length) {
           warn(
@@ -518,14 +532,22 @@ export async function run() {
         }
       } else if (cliArgs.updateBaseline && !process.env.JAPA_SPEED_RUN_ID) {
         warn(
-          'Baseline not updated: --update-baseline requires a full run ' +
-            '(no test, file, group, tag, changed or failed filter and no shard).'
+          nonTestErrors
+            ? 'Baseline not updated: the run had setup or teardown errors.'
+            : 'Baseline not updated: --update-baseline requires a full run ' +
+                '(no test, file, group, tag, changed or failed filter, no bail and no shard).'
         )
       }
       if (cliArgs.allowKnownFailures) {
         const baseline = await readBaseline(file)
-        const { new: fresh, known, fixed } = diffFailures(baseline, runFailures.failures)
-        onlyKnownFailures = fresh.length === 0
+        const {
+          new: fresh,
+          known,
+          fixed,
+        } = diffFailures(baseline, runFailures.failures, {
+          fullRun: isFullRun && !nonTestErrors,
+        })
+        onlyKnownFailures = fresh.length === 0 && !nonTestErrors
         if (fixed.length && !cliArgs.reporterAgent && !cliArgs.agentFile) {
           warn(
             `${fixed.length} baseline ${fixed.length === 1 ? 'entry' : 'entries'} did not fail; ` +
@@ -536,6 +558,7 @@ export async function run() {
           const { setAgentContext } = await import('./src/reporters/context.js')
           setAgentContext(runner, {
             baseline: { known: known.length, new: fresh.length, fixed: fixed.length },
+            ...(nonTestErrors ? { nonTestErrors: true } : {}),
           })
         }
       }
@@ -543,6 +566,10 @@ export async function run() {
 
     await globalHooks.teardown(null, runner)
     await runner.end()
+    if (!process.env.JAPA_SPEED_RUN_ID) {
+      const { flushDependencies } = await import('./src/dependencies.js')
+      await flushDependencies(emitter)
+    }
 
     /**
      * Print unhandled errors

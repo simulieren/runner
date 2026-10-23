@@ -17,8 +17,8 @@ import type { PluginFn } from './types.js'
 
 /**
  * What the index remembers about one test file. `mtimeMs` and `size` invalidate
- * an entry cheaply; the hash is only computed for files that survive, so a
- * changed file can never silently drop a matching test.
+ * an entry cheaply. A rewrite that preserves both can still slip through, which
+ * is why an indexed file is only skipped when it is provably unable to match.
  */
 export type IndexedFile = {
   mtimeMs: number
@@ -111,8 +111,13 @@ export function shouldSkipFile(
   ) {
     return true
   }
-  if (has(filters.tags) && !filters.tags!.some((needle) => matchesFilter(needle, entry.tags))) {
-    return true
+  if (has(filters.tags)) {
+    // Negated tags (`!slow`, `~slow`) cannot be proved from the union of tags in
+    // a file, so only positive tags may drop a file.
+    const positive = filters.tags!.filter((tag) => !tag.startsWith('!') && !tag.startsWith('~'))
+    if (positive.length && !positive.some((needle) => matchesFilter(needle, entry.tags))) {
+      return true
+    }
   }
   return false
 }

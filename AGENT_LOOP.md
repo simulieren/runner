@@ -6,11 +6,11 @@ bounded, machine-readable results. Default behaviour is unchanged.
 ## Quick start
 
 ```sh
-# once per checkout
-npx japa --prepare-caches --cache-dir=.japa
+# once per checkout (use your test entrypoint)
+node bin/test.js --prepare-caches --cache-dir=.japa
 
 # after an edit
-npx japa --changed=auto --agent --agent-file=report.jsonl
+node bin/test.js --changed=auto --agent --agent-file=report.jsonl
 
 # or through the wrapper
 npx japa-agent -- node --import=@poppinss/ts-exec bin/test.ts
@@ -20,7 +20,7 @@ npx japa-agent -- node --import=@poppinss/ts-exec bin/test.ts
 
 | Flag | Effect |
 | --- | --- |
-| `--prepare-caches` | Import every file and write the selection index and dependency map. Runs no tests and skips global setup hooks. |
+| `--prepare-caches` | Import every file and write the selection index and dependency map. Runs no tests and skips global setup hooks. `--files` still limits imports; other selection flags are ignored. |
 | `--tests`, `--groups`, `--tags` | Filter as before. `--tests` matches exact test titles. Files that cannot match are no longer imported. |
 | `--changed=auto` | Derive changed paths from `git diff --name-only HEAD` plus untracked files. |
 | `--changed=path,path` | Explicit paths, relative to the application directory. |

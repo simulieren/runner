@@ -13,6 +13,8 @@
  * harness can tell a fast, narrow run from a silent fallback to everything.
  */
 export type AgentContext = {
+  /** Application directory used to keep reported file paths stable. */
+  cwd?: string
   selection?: {
     mode: 'all' | 'filtered' | 'changed'
     planned: number
@@ -30,6 +32,8 @@ export type AgentContext = {
     new: number
     fixed?: number
   }
+  /** Setup/teardown errors mean "known failures only" cannot turn the run green. */
+  nonTestErrors?: boolean
 }
 
 const contexts = new WeakMap<object, AgentContext>()
