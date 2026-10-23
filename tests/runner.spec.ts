@@ -954,6 +954,29 @@ test.describe('Automatic duration history and worker coordination', () => {
     )
   })
 
+  test('apply title filtering after plugins mutate the filters', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { readFile, writeFile } = await import('node:fs/promises')
+    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
+    await serial(cwd, entry, loader, ['--prepare-caches'])
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    await promisify(execFile)(
+      process.execPath,
+      [`--import=${loader}`, entry, '--agent', '--tests=case 3'],
+      {
+        cwd,
+        env: {
+          ...process.env,
+          TEST_PLUGIN_FILTER: 'case 5',
+          TEST_OBSERVED: `${cwd}/observed-serial.json`,
+        },
+      }
+    )
+    const observed = JSON.parse(await readFile(`${cwd}/observed-serial.json`, 'utf8'))
+    assert.deepEqual(observed.executed, [5])
+  })
+
   test('narrow imported files by title filter without changing the selection', async (context) => {
     const { cwd, entry, loader } = await fixture(context)
     const { readFile, writeFile } = await import('node:fs/promises')
@@ -1091,6 +1114,45 @@ test.describe('Automatic duration history and worker coordination', () => {
     )
   })
 
+  test('apply one changed-file selection to managed workers', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { readFile, writeFile } = await import('node:fs/promises')
+    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
+    await serial(cwd, entry, loader, ['--prepare-caches'])
+    const { runParallel } = await import('../src/parallel.js')
+    const result = await runParallel({
+      command: process.execPath,
+      args: [`--import=${loader}`, entry, '--changed=file0.spec.ts'],
+      cwd,
+      workers: 1,
+      historyFile: 'history.json',
+      stdio: 'ignore' as const,
+      env: { TEST_OBSERVED: `${cwd}/observed-serial.json` },
+    })
+    assert.equal(result.exitCode, 0)
+    const observed = JSON.parse(await readFile(`${cwd}/observed-serial.json`, 'utf8'))
+    assert.deepEqual(observed.executed, [0])
+  })
+
+  test('prepare ignores file filters and builds a complete dependency map', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { readFile, writeFile } = await import('node:fs/promises')
+    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    await promisify(execFile)(
+      process.execPath,
+      [`--import=${loader}`, entry, '--prepare-caches', '--files=file0.spec.ts'],
+      { cwd, env: { ...process.env, TEST_OBSERVED: `${cwd}/observed-serial.json` } }
+    )
+    const observed = JSON.parse(await readFile(`${cwd}/observed-serial.json`, 'utf8'))
+    assert.lengthOf(observed.imported, 6)
+    const { dependencyFile } = await import('../src/cache_paths.js')
+    const map = JSON.parse(await readFile(dependencyFile(cwd), 'utf8'))
+    assert.isTrue(map.complete)
+    assert.lengthOf(Object.keys(map.files), 6)
+  })
+
   test('prepare builds the caches without executing tests', async (context) => {
     const { cwd, entry, loader } = await fixture(context)
     const { readFile, readdir, writeFile } = await import('node:fs/promises')
@@ -1147,7 +1209,7 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.deepEqual(allFailures.executed.sort(), [0, 1])
 
     const newOnly = await run(['--failed', '--failed-new'], { TEST_FAIL: '1' })
-    assert.lengthOf(newOnly.executed, 6)
+    assert.deepEqual(newOnly.executed, [])
   })
 
   test('write agent results to a file and reserve exit 2 for setup errors', async (context) => {
@@ -1513,6 +1575,78 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.isFalse(changed.baselineUpdated)
   })
 
+  test('reject a parallel baseline update when a worker has a process error', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { writeFile } = await import('node:fs/promises')
+    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
+    const { runParallel } = await import('../src/parallel.js')
+    const result = await runParallel({
+      command: process.execPath,
+      args: [`--import=${loader}`, entry, '--update-baseline'],
+      cwd,
+      workers: 2,
+      historyFile: 'history.json',
+      stdio: 'ignore' as const,
+      updateBaseline: true,
+      env: { TEST_FAIL: '1', TEST_LATE_UNHANDLED: '1' },
+    })
+    assert.notEqual(result.exitCode, 0)
+    assert.isFalse(result.baselineUpdated)
+  })
+
+  test('merge agent reports from parallel workers', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { readFile, writeFile } = await import('node:fs/promises')
+    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
+    const { runParallel } = await import('../src/parallel.js')
+    const result = await runParallel({
+      command: process.execPath,
+      args: [`--import=${loader}`, entry, '--agent-file=agent.jsonl'],
+      cwd,
+      workers: 2,
+      historyFile: 'history.json',
+      stdio: 'ignore' as const,
+      env: { TEST_FAIL: '1' },
+    })
+    assert.notEqual(result.exitCode, 0)
+    const report = await readFile(`${cwd}/agent.jsonl`, 'utf8')
+    const lines = report
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    assert.lengthOf(
+      lines.filter((line) => line.event === 'test' && line.status === 'failed'),
+      2
+    )
+    assert.equal(lines.at(-1).event, 'summary')
+    assert.equal(lines.at(-1).total, 6)
+    assert.equal(lines.at(-1).failed, 2)
+  })
+
+  test('do not let known failures suppress a late unhandled rejection', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { writeFile } = await import('node:fs/promises')
+    for (let index = 0; index < 6; index++) await writeFile(`${cwd}/file${index}.spec.ts`, '')
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    const run = (env: NodeJS.ProcessEnv, args: string[] = []) =>
+      promisify(execFile)(process.execPath, [`--import=${loader}`, entry, ...args], {
+        cwd,
+        env: { ...process.env, ...env },
+      }).then(
+        () => 0,
+        (error: { code?: number }) => error.code ?? 1
+      )
+    await run({ TEST_FAIL: '1' }, ['--update-baseline'])
+    assert.notEqual(
+      await run({ TEST_FAIL: '1', TEST_LATE_UNHANDLED: '1' }, [
+        '--allow-known-failures',
+        '--agent',
+      ]),
+      0
+    )
+  })
+
   test('compare failures against a baseline and report agent-readable results', async (context) => {
     const { cwd, entry, loader } = await fixture(context)
     const { writeFile, readFile } = await import('node:fs/promises')
@@ -1753,6 +1887,104 @@ test.describe('Agent loop safety', () => {
     const baseline = { version: 1 as const, failures: [entry] }
     const diff = diffFailures(baseline, [entry, entry])
     assert.lengthOf(diff.known, 1)
+  })
+
+  test('compare selection signatures and group identities in deltas', async () => {
+    const { diffReports } = await import('../src/agent_delta.js')
+    const selection = (signature: string) => ({
+      mode: 'filtered',
+      planned: 1,
+      skipped: 1,
+      signature,
+    })
+    const previous = {
+      summary: { total: 1, selection: selection('a') },
+      failures: [{ suite: 'unit', group: 'A', file: 'f.spec.ts', title: 'same' }],
+    }
+    const differentSelection = diffReports(previous, {
+      summary: { total: 1, selection: selection('b') },
+      failures: [{ suite: 'unit', group: 'B', file: 'f.spec.ts', title: 'same' }],
+    })
+    assert.isFalse(differentSelection.comparable)
+    assert.lengthOf(differentSelection.fixed, 0)
+    assert.lengthOf(differentSelection.newFailures, 1)
+
+    const same = diffReports(previous, {
+      summary: { total: 1, selection: selection('a') },
+      failures: [{ suite: 'unit', group: 'A', file: 'f.spec.ts', title: 'same' }],
+    })
+    assert.isTrue(same.comparable)
+    assert.lengthOf(same.newFailures, 0)
+  })
+
+  test('include groups in baseline identities', async () => {
+    const { diffFailures } = await import('../src/failure_baseline.js')
+    const baseline = {
+      version: 2 as const,
+      failures: [{ suite: 'default', group: 'A', file: 'a.spec.ts', title: 'same' }],
+    }
+    const observed = [{ suite: 'default', group: 'B', file: 'a.spec.ts', title: 'same' }]
+    assert.lengthOf(diffFailures(baseline, observed).new, 1)
+  })
+
+  test('never prune a file that registers a pinned test', async () => {
+    const { shouldSkipFile } = await import('../src/selection_index.js')
+    const entry = {
+      mtimeMs: 0,
+      size: 0,
+      tests: ['a'],
+      groups: [],
+      tags: [],
+      pinned: true,
+    }
+    assert.isFalse(shouldSkipFile(entry, { tests: ['b'] }))
+  })
+
+  test('invalidate indexed freshness when a dependency changes', async () => {
+    const { isFresh } = await import('../src/selection_index.js')
+    const { mkdtemp, writeFile, stat, rm } = await import('node:fs/promises')
+    const { fileURLToPath } = await import('node:url')
+    const cwd = await mkdtemp(fileURLToPath(new URL('../.fresh-', import.meta.url)))
+    try {
+      await writeFile(`${cwd}/test.spec.ts`, '')
+      await writeFile(`${cwd}/helper.ts`, 'export const title = "old"\n')
+      const testStats = await stat(`${cwd}/test.spec.ts`)
+      const helper = await stat(`${cwd}/helper.ts`)
+      const entry = {
+        mtimeMs: testStats.mtimeMs,
+        size: testStats.size,
+        tests: ['old'],
+        groups: [],
+        tags: [],
+        dependencies: {
+          'helper.ts': { mtimeMs: helper.mtimeMs, size: helper.size },
+        },
+      }
+      assert.isTrue(await isFresh(cwd, 'test.spec.ts', entry))
+      await writeFile(`${cwd}/helper.ts`, 'export const title = "new"\n')
+      assert.isFalse(await isFresh(cwd, 'test.spec.ts', entry))
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('reject malformed selection and dependency caches', async () => {
+    const { emptyIndex, readIndex } = await import('../src/selection_index.js')
+    const { parseDependencyMap } = await import('../src/dependencies.js')
+    const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+    const { fileURLToPath } = await import('node:url')
+    const cwd = await mkdtemp(fileURLToPath(new URL('../.cache-', import.meta.url)))
+    try {
+      await writeFile(`${cwd}/index.json`, JSON.stringify({ version: 1, files: null }))
+      assert.deepEqual(await readIndex(`${cwd}/index.json`), emptyIndex())
+      assert.deepEqual(parseDependencyMap({ version: 1, files: null }), {
+        version: 1,
+        complete: false,
+        files: {},
+      })
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
   })
 
   test('reject an invalid japa-agent timeout', async () => {

@@ -12,7 +12,8 @@ import { dirname, join, relative, resolve } from 'node:path'
 import debug from './debug.js'
 import { withCacheLock } from './cache_lock.js'
 import { setSelectionPlan } from './planning_state.js'
-import { indexFile } from './cache_paths.js'
+import { dependencyFile, indexFile } from './cache_paths.js'
+import { readDependencyMap } from './dependencies.js'
 import type { PluginFn } from './types.js'
 
 /**
@@ -31,6 +32,10 @@ export type IndexedFile = {
    * the titles that will run, so a title filter must never skip it.
    */
   dynamic?: boolean
+  /** A pinned test must never be pruned by a title filter. */
+  pinned?: boolean
+  /** Freshness of the files this test file imported when the index was written. */
+  dependencies?: Record<string, { mtimeMs: number; size: number }>
 }
 
 export type SelectionIndex = {
@@ -49,9 +54,24 @@ export async function readIndex(file: string): Promise<SelectionIndex> {
       !parsed ||
       typeof parsed !== 'object' ||
       (parsed as SelectionIndex).version !== 1 ||
-      typeof (parsed as SelectionIndex).files !== 'object'
+      !(parsed as SelectionIndex).files ||
+      typeof (parsed as SelectionIndex).files !== 'object' ||
+      Array.isArray((parsed as SelectionIndex).files)
     ) {
       return emptyIndex()
+    }
+    for (const entry of Object.values((parsed as SelectionIndex).files)) {
+      if (
+        !entry ||
+        typeof entry !== 'object' ||
+        typeof entry.mtimeMs !== 'number' ||
+        typeof entry.size !== 'number' ||
+        !Array.isArray(entry.tests) ||
+        !Array.isArray(entry.groups) ||
+        !Array.isArray(entry.tags)
+      ) {
+        return emptyIndex()
+      }
     }
     return parsed as SelectionIndex
   } catch (error) {
@@ -97,6 +117,7 @@ export function shouldSkipFile(
 ): boolean {
   const has = (values?: string[]) => Boolean(values && values.length)
 
+  if (entry.pinned) return false
   if (has(filters.tests)) {
     // Registered titles cannot represent dataset rows, so keep such files.
     if (entry.dynamic) return false
@@ -124,8 +145,16 @@ export function shouldSkipFile(
 
 /** True when the on-disk file still matches what the index recorded. */
 export async function isFresh(cwd: string, path: string, entry: IndexedFile) {
+  if (!entry.dependencies) return false
   const stats = await stat(join(cwd, path)).catch(() => null)
-  return Boolean(stats && stats.size === entry.size && stats.mtimeMs === entry.mtimeMs)
+  if (!stats || stats.size !== entry.size || stats.mtimeMs !== entry.mtimeMs) return false
+  for (const [dependency, expected] of Object.entries(entry.dependencies)) {
+    const current = await stat(join(cwd, dependency)).catch(() => null)
+    if (!current || current.size !== expected.size || current.mtimeMs !== expected.mtimeMs) {
+      return false
+    }
+  }
+  return true
 }
 
 /**
@@ -146,6 +175,8 @@ export function selectionIndex(options: { file?: string; dir?: string } = {}): P
     if (!filters.tests && !filters.groups && !filters.tags) return
 
     const cwd = await realpath(config.cwd)
+    const dependencies = await readDependencyMap(dependencyFile(cwd, options.dir))
+    if (dependencies.complete !== true) return
     const index = await readIndex(
       options.file ? resolve(cwd, options.file) : indexFile(cwd, options.dir)
     )
@@ -171,6 +202,7 @@ export function selectionIndex(options: { file?: string; dir?: string } = {}): P
 }
 
 type RegisteredTest = {
+  isPinned?: boolean
   options?: {
     title?: string
     tags?: string[]
@@ -199,10 +231,27 @@ async function hasRuntimeTitles(path: string, entry: IndexedFile) {
  * the filter is, so a filtered run still writes complete entries for the files it
  * imported; skipped files keep their previous entries.
  */
+async function dependencyStamps(
+  cwd: string,
+  path: string,
+  dependencies: Awaited<ReturnType<typeof readDependencyMap>>
+) {
+  const files = dependencies.files[path]
+  if (!files) return {}
+  const stamps: NonNullable<IndexedFile['dependencies']> = {}
+  for (const dependency of files) {
+    const stats = await stat(join(cwd, dependency)).catch(() => null)
+    if (!stats) return {}
+    stamps[dependency] = { mtimeMs: stats.mtimeMs, size: stats.size }
+  }
+  return { dependencies: stamps }
+}
+
 async function collectIndex(
   runner: { suites: Array<{ name: string; stack: Array<unknown> }> },
   cwd: string,
-  index: SelectionIndex
+  index: SelectionIndex,
+  dependencies: Awaited<ReturnType<typeof readDependencyMap>>
 ) {
   const seen = new Map<string, IndexedFile>()
 
@@ -211,8 +260,16 @@ async function collectIndex(
     const title = test.options?.title
     if (typeof file !== 'string' || typeof title !== 'string') return
     const path = relative(cwd, file).split('\\').join('/')
-    const entry = seen.get(path) ?? { mtimeMs: 0, size: 0, tests: [], groups: [], tags: [] }
+    const entry = seen.get(path) ?? {
+      mtimeMs: 0,
+      size: 0,
+      tests: [],
+      groups: [],
+      tags: [],
+      pinned: false,
+    }
     entry.tests.push(title)
+    if (test.isPinned) entry.pinned = true
     const group = groupTitle ?? test.options?.meta?.group?.title
     if (typeof group === 'string') entry.groups.push(group)
     for (const tag of test.options?.tags ?? []) entry.tags.push(tag)
@@ -246,6 +303,8 @@ async function collectIndex(
       groups: [...new Set(entry.groups)],
       tags: [...new Set(entry.tags)],
       ...(dynamic ? { dynamic: true } : {}),
+      ...(entry.pinned ? { pinned: true } : {}),
+      ...(await dependencyStamps(cwd, path, dependencies)),
     }
   }
   return seen.size
@@ -260,10 +319,12 @@ export async function writeSelectionIndex(
   cwd: string,
   options: { file?: string; dir?: string } = {}
 ) {
-  const target = options.file ? resolve(cwd, options.file) : indexFile(cwd, options.dir)
+  const root = await realpath(cwd)
+  const target = options.file ? resolve(root, options.file) : indexFile(root, options.dir)
+  const dependencies = await readDependencyMap(dependencyFile(root, options.dir))
   return withCacheLock(target, async () => {
     const index = await readIndex(target)
-    const count = await collectIndex(runner, cwd, index)
+    const count = await collectIndex(runner, root, index, dependencies)
     if (count) await writeIndex(target, index)
     return count
   })

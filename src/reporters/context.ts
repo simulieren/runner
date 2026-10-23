@@ -19,6 +19,7 @@ export type AgentContext = {
     mode: 'all' | 'filtered' | 'changed'
     planned: number
     skipped: number
+    signature?: string
     /** A filter was requested but could not narrow the import list. */
     fallback?: boolean
   }

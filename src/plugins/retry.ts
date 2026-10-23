@@ -9,6 +9,7 @@
 
 import { readFile } from 'node:fs/promises'
 import { colors } from '../helpers.js'
+import { setSelectionPlan } from '../planning_state.js'
 import type { PluginFn } from '../types.js'
 import { failedTestsFile, getFailedTests, cacheFailedTests } from './retry_cache.js'
 export { getFailedTests, cacheFailedTests, clearCache } from './retry_cache.js'
@@ -55,13 +56,21 @@ export const retryPlugin: PluginFn = async function retry({ config, cliArgs }) {
        * expected. Matching is by title, because the retry cache stores titles;
        * opt-in so the imprecise identity can never silently hide a regression.
        */
+      let filteredByBaseline = false
       if (cliArgs.failedNew && tests?.length) {
         const { readBaseline, baselineFile } = await import('../failure_baseline.js')
         const baseline = await readBaseline(baselineFile(config.cwd))
         const known = new Set(baseline.failures.map((entry) => entry.title))
-        if (known.size) tests = tests.filter((title) => !known.has(title))
+        if (known.size) {
+          filteredByBaseline = tests.some((title) => known.has(title))
+          tests = tests.filter((title) => !known.has(title))
+        }
       }
       if (!tests || !tests.length) {
+        if (filteredByBaseline) {
+          setSelectionPlan(config, { only: Object.freeze([]) })
+          return
+        }
         console.log(colors.bgYellow().black(' No failing tests found. Running all the tests '))
         return
       }

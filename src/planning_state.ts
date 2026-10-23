@@ -25,6 +25,7 @@ export type SelectionPlan = {
 export type SelectionStats = {
   collected: number
   planned: number
+  signature?: string
 }
 
 const plans = new WeakMap<object, SelectionPlan>()

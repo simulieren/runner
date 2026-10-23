@@ -83,7 +83,7 @@ function shrinkLine(record: Record<string, unknown>) {
       'regression',
       'ok',
       'knownOnly',
-      'nonTestErrors',
+      'processError',
       'selection',
       'phases',
       'baseline',
@@ -220,6 +220,7 @@ export class AgentReporter extends BaseReporter {
       event: 'test',
       status,
       file: file ? relative(cwd, file) : undefined,
+      suite: payload.meta?.suite?.name,
       group: payload.meta?.group?.title,
       title: payload.title.expanded,
       durationMs: Math.round(payload.duration * 1000) / 1000,
@@ -253,6 +254,8 @@ export class AgentReporter extends BaseReporter {
     const summary = this.runner!.getSummary()
     const context = getAgentContext(this.runner!)
     const repeats = [...this.#seen.entries()].filter(([, count]) => count > 1)
+    const processError =
+      Boolean(context.nonTestErrors) || process.exitCode === 1 || process.exitCode === 2
 
     this.#emit({
       event: 'summary',
@@ -268,7 +271,7 @@ export class AgentReporter extends BaseReporter {
       !context.nonTestErrors
         ? { knownOnly: true }
         : {}),
-      ...(context.nonTestErrors ? { nonTestErrors: true } : {}),
+      ...(processError ? { processError: true } : {}),
       ...(repeats.length
         ? {
             errorGroups: repeats.map(([key, count]) => ({

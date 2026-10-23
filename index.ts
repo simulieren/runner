@@ -242,6 +242,16 @@ export async function run() {
       Boolean(cliArgs.reporterAgent || cliArgs.agentFile) ||
       Boolean(filters.tests?.length || filters.groups?.length || filters.tags?.length)
 
+    // Preparing caches always covers the whole configured suite. Otherwise a
+    // `--files`/`--suites` selection would produce a map that looks complete.
+    if (preparing) {
+      filters.files = []
+      filters.suites = []
+      filters.tests = []
+      filters.groups = []
+      filters.tags = []
+      filters.shard = undefined
+    }
     // The coordinator's environment enables history without an app-config edit.
     if (
       process.env.JAPA_SPEED_SNAPSHOT ||
@@ -257,6 +267,27 @@ export async function run() {
      * imported, and record what each file contains for the next filtered run.
      * Best-effort: an absent or stale index keeps every file.
      */
+    if (process.env.JAPA_SPEED_ONLY) {
+      try {
+        const only: unknown = JSON.parse(process.env.JAPA_SPEED_ONLY)
+        if (Array.isArray(only) && only.every((path) => typeof path === 'string')) {
+          const { setSelectionPlan } = await import('./src/planning_state.js')
+          setSelectionPlan(runnerConfig!, { only: Object.freeze(only) })
+        }
+      } catch (error) {
+        debug('ignoring invalid coordinator selection: %O', error)
+      }
+    }
+
+    /**
+     * Step 1: Executing plugins before creating a plan, so that it can mutate
+     * the config
+     */
+    for (let plugin of runnerConfig!.plugins) {
+      debug('executing "%s" plugin', plugin.name || 'anonymous')
+      await plugin({ runner, emitter, cliArgs, config: runnerConfig! })
+    }
+
     if (!process.env.JAPA_SPEED_RUN_ID && recordsCaches) {
       const { changedSelection, recordDependencies } = await import('./src/dependencies.js')
       const dependencyOptions = { dir: cliArgs.cacheDir }
@@ -292,15 +323,6 @@ export async function run() {
     }
 
     /**
-     * Step 1: Executing plugins before creating a plan, so that it can mutate
-     * the config
-     */
-    for (let plugin of runnerConfig!.plugins) {
-      debug('executing "%s" plugin', plugin.name || 'anonymous')
-      await plugin({ runner, emitter, cliArgs, config: runnerConfig! })
-    }
-
-    /**
      * Step 2: Creating an execution plan. The output is the result of
      * applying all the filters and validations.
      */
@@ -330,6 +352,7 @@ export async function run() {
               : 'all',
           planned: stats?.planned ?? 0,
           skipped: stats ? stats.collected - stats.planned : 0,
+          ...(stats?.signature ? { signature: stats.signature } : {}),
           ...(requestedSelection && !(stats && stats.planned < stats.collected)
             ? { fallback: true }
             : {}),
@@ -419,6 +442,8 @@ export async function run() {
      * imported, so even a filtered run keeps its entries complete.
      */
     if (!process.env.JAPA_NO_SELECTION_INDEX && recordsCaches) {
+      const { flushDependencies } = await import('./src/dependencies.js')
+      await flushDependencies(emitter)
       const { writeSelectionIndex } = await import('./src/selection_index.js')
       await writeSelectionIndex(runner, runnerConfig!.cwd, { dir: cliArgs.cacheDir }).catch(
         (error) => console.error(`Unable to update the selection index: ${String(error)}`)
@@ -498,6 +523,7 @@ export async function run() {
       const phases = getAgentContext(runner).phases ?? { bootMs: 0, importMs: 0, testMs: 0 }
       setAgentContext(runner, {
         phases: { ...phases, testMs: Math.round(performance.now() - execStartedAt) },
+        ...(nonTestErrors ? { nonTestErrors: true } : {}),
       })
     }
 
@@ -522,6 +548,7 @@ export async function run() {
         !cliArgs.failed &&
         !cliArgs.changed &&
         !cliArgs.bail &&
+        !runFailures.hasPinned() &&
         !filters.shard &&
         !filters.suites?.length &&
         !filters.tests?.length &&
@@ -589,11 +616,12 @@ export async function run() {
      * A run whose only failures are recorded in the baseline exits 0, so a suite
      * with known red tests is usable in CI and from agents.
      */
-    if ((summary.hasError || exceptionsManager.hasErrors) && !onlyKnownFailures) {
+    const processFailure = Boolean(runFailures?.hasNonTestError()) || exceptionsManager.hasErrors
+    if ((summary.hasError && !onlyKnownFailures) || processFailure) {
       debug(
-        'updating exit code to 1. summary.hasError %s, process.hasError',
+        'updating exit code to 1. summary.hasError %s, process.hasError %s',
         summary.hasError,
-        exceptionsManager.hasErrors
+        processFailure
       )
       process.exitCode = 1
     }

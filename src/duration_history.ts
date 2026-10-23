@@ -196,6 +196,12 @@ export function durationHistory(options: { file?: string } = {}): PluginFn {
     let pinned = false
     // A failed suite/group hook can skip tests, leaving file costs incomplete.
     let hookFailed = false
+    let processError = false
+    const markProcessError = () => {
+      processError = true
+    }
+    process.on('uncaughtException', markProcessError)
+    process.on('unhandledRejection', markProcessError)
     const offSuite = emitter.on('suite:start', (payload) => {
       suite = payload.name
     })
@@ -215,29 +221,40 @@ export function durationHistory(options: { file?: string } = {}): PluginFn {
       if (payload.hasError) {
         failedFiles.add(key)
         if (collectFailures) {
-          failures.push({ suite, file: path, title: payload.title.expanded })
+          failures.push({
+            suite,
+            group: payload.meta.group?.title,
+            file: path,
+            title: payload.title.expanded,
+          })
         }
       }
     })
     const offEnd = emitter.on('runner:end', async () => {
+      // Let late unhandled rejections from runner:end listeners settle before
+      // deciding whether this worker is safe to promote.
+      await new Promise((done) => setImmediate(done))
       offSuite()
       offSuiteEnd()
       offGroupEnd()
       offTest()
       offEnd()
+      process.removeListener('uncaughtException', markProcessError)
+      process.removeListener('unhandledRejection', markProcessError)
       const partial =
         pinned ||
         (['tests', 'groups', 'tags'] as const).some((filter) => config.filters[filter]?.length)
       const fullRun =
         !partial &&
         !hookFailed &&
+        !processError &&
         !cliArgs.listPinned &&
         !cliArgs.failed &&
         !cliArgs.changed &&
         !cliArgs.bail &&
         !config.filters.files?.length &&
         !config.filters.suites?.length
-      const complete = !partial && !hookFailed
+      const complete = !partial && !hookFailed && !cliArgs.bail && !processError
       for (const key of failedFiles) delete durations[key]
       if (managed) {
         try {

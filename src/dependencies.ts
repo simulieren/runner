@@ -8,12 +8,12 @@
  */
 
 import { execFile } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
 import * as nodeModule from 'node:module'
 import { promisify } from 'node:util'
 import { pathToFileURL } from 'node:url'
 import { join, relative, resolve } from 'node:path'
-import { dependencyFile } from './cache_paths.js'
+import { cacheDir, dependencyFile } from './cache_paths.js'
 import { fileURLToPath } from 'node:url'
 import debug from './debug.js'
 import { withCacheLock } from './cache_lock.js'
@@ -26,8 +26,16 @@ import type { PluginFn } from './types.js'
  */
 export type DependencyMap = {
   version: 1
+  /** True only when every configured suite file was imported by this map. */
+  complete?: boolean
   /** Test file (relative) -> source files it imported (relative). */
   files: Record<string, string[]>
+}
+
+/** Relative imports that should have produced a resolve edge. */
+async function hasRelativeImports(path: string) {
+  const source = await readFile(path, 'utf8').catch(() => '')
+  return /(?:\bfrom\s+|\bimport\s*\(|\brequire\s*\()\s*['"]\.{1,2}\//.test(source)
 }
 
 /** Per-run writers, so two runs in one process cannot clobber each other. */
@@ -53,7 +61,12 @@ function isBuildNoise(path: string) {
  * plus untracked files. Returns an empty list when git cannot answer, which the
  * caller treats as "run everything".
  */
-export async function gitChangedPaths(cwd: string): Promise<string[]> {
+function isIgnoredPath(path: string, ignored: string[]) {
+  const value = path.replace(/^\.\//, '')
+  return ignored.some((entry) => value === entry || value.startsWith(`${entry}/`))
+}
+
+export async function gitChangedPaths(cwd: string, ignored: string[] = []): Promise<string[]> {
   const run = promisify(execFile)
   try {
     const [modified, untracked] = await Promise.all([
@@ -63,7 +76,7 @@ export async function gitChangedPaths(cwd: string): Promise<string[]> {
     const lines = `${modified.stdout}\n${untracked.stdout}`
       .split('\n')
       .map((line) => line.trim())
-      .filter((line) => line && !isBuildNoise(line))
+      .filter((line) => line && !isBuildNoise(line) && !isIgnoredPath(line, ignored))
     return [...new Set(lines)]
   } catch (error) {
     debug('unable to read changed paths from git: %O', error)
@@ -72,12 +85,18 @@ export async function gitChangedPaths(cwd: string): Promise<string[]> {
 }
 
 export function parseDependencyMap(value: unknown): DependencyMap {
-  if (!value || typeof value !== 'object' || (value as DependencyMap).version !== 1) {
-    return { version: 1, files: Object.create(null) }
-  }
+  const empty = (): DependencyMap => ({ version: 1, complete: false, files: Object.create(null) })
+  if (!value || typeof value !== 'object' || (value as DependencyMap).version !== 1) return empty()
   const files = (value as DependencyMap).files
-  if (!files || typeof files !== 'object') return { version: 1, files: Object.create(null) }
-  return { version: 1, files }
+  if (!files || typeof files !== 'object' || Array.isArray(files)) return empty()
+  const parsed: Record<string, string[]> = Object.create(null)
+  for (const [key, dependencies] of Object.entries(files)) {
+    if (!Array.isArray(dependencies) || !dependencies.every((item) => typeof item === 'string')) {
+      return empty()
+    }
+    parsed[key] = dependencies
+  }
+  return { version: 1, complete: (value as DependencyMap).complete === true, files: parsed }
 }
 
 export async function readDependencyMap(file: string): Promise<DependencyMap> {
@@ -85,7 +104,7 @@ export async function readDependencyMap(file: string): Promise<DependencyMap> {
     return parseDependencyMap(JSON.parse(await readFile(file, 'utf8')))
   } catch (error) {
     debug('ignoring unavailable dependency map %s: %O', file, error)
-    return { version: 1, files: Object.create(null) }
+    return { version: 1, complete: false, files: Object.create(null) }
   }
 }
 
@@ -98,7 +117,7 @@ export async function readDependencyMap(file: string): Promise<DependencyMap> {
  */
 export function filesAffectedBy(map: DependencyMap, changed: string[]): string[] | undefined {
   const wanted = new Set(changed.map((path) => path.split('\\').join('/')))
-  if (!wanted.size || !Object.keys(map.files).length) return undefined
+  if (map.complete !== true || !wanted.size || !Object.keys(map.files).length) return undefined
 
   const matches = new Set<string>()
   for (const [testFile, dependencies] of Object.entries(map.files)) {
@@ -123,7 +142,7 @@ export function filesAffectedBy(map: DependencyMap, changed: string[]): string[]
 
 /** Record each test file's transitive imports for `--changed`. */
 export function recordDependencies(options: { file?: string; dir?: string } = {}): PluginFn {
-  return async ({ config, emitter }) => {
+  return async ({ config, emitter, cliArgs }) => {
     // Node 22.15+/23.5+ ship registerHooks. On older supported versions the
     // dependency map is simply unavailable; --changed then runs everything.
     const hooks = nodeModule as { registerHooks?: typeof nodeModule.registerHooks }
@@ -132,11 +151,25 @@ export function recordDependencies(options: { file?: string; dir?: string } = {}
       return
     }
 
-    const cwd = config.cwd
+    const cwd = await realpath(config.cwd)
     const target = options.file ? resolve(cwd, options.file) : dependencyFile(cwd, options.dir)
     const map = await readDependencyMap(target)
     const testFiles = new Set<string>()
     const edges = new Map<string, Set<string>>()
+    const filters = config.filters
+    const completeRun =
+      Boolean(cliArgs?.prepareCaches) ||
+      (!cliArgs?.changed &&
+        !cliArgs?.failed &&
+        !cliArgs?.bail &&
+        !filters?.tests?.length &&
+        !filters?.groups?.length &&
+        !filters?.tags?.length &&
+        !filters?.files?.length &&
+        !filters?.suites?.length &&
+        !filters?.shard)
+    let importFailed = false
+    let graphComplete = true
 
     const addEdge = (parent: string, child: string) => {
       let set = edges.get(parent)
@@ -159,7 +192,12 @@ export function recordDependencies(options: { file?: string; dir?: string } = {}
     const importer = config.importer
     config.importer = async (fileURL) => {
       testFiles.add(relative(cwd, fileURLToPath(fileURL)).split('\\').join('/'))
-      return importer(fileURL)
+      try {
+        return await importer(fileURL)
+      } catch (error) {
+        importFailed = true
+        throw error
+      }
     }
 
     const write = async () => {
@@ -186,6 +224,26 @@ export function recordDependencies(options: { file?: string; dir?: string } = {}
         map.files[testFile] = [...project].sort()
       }
 
+      if (completeRun && !importFailed) {
+        for (const testFile of testFiles) {
+          const root = pathToFileURL(join(cwd, testFile)).href
+          if (await hasRelativeImports(join(cwd, testFile))) {
+            const recorded = edges.get(root)?.size ?? 0
+            if (!recorded) graphComplete = false
+          }
+          for (const dependency of map.files[testFile] ?? []) {
+            if (dependency === testFile) continue
+            const url = pathToFileURL(join(cwd, dependency)).href
+            if (
+              (edges.get(url)?.size ?? 0) === 0 &&
+              (await hasRelativeImports(join(cwd, dependency)))
+            ) {
+              graphComplete = false
+            }
+          }
+        }
+      }
+
       try {
         const { mkdir, rename, writeFile } = await import('node:fs/promises')
         await withCacheLock(target, async () => {
@@ -195,6 +253,8 @@ export function recordDependencies(options: { file?: string; dir?: string } = {}
             const merged = new Set([...(latest.files[testFile] ?? []), ...dependencies])
             latest.files[testFile] = [...merged].sort()
           }
+          latest.complete =
+            latest.complete === true || (completeRun && !importFailed && graphComplete)
           const temporary = `${target}.${process.pid}.tmp`
           await mkdir(resolve(target, '..'), { recursive: true })
           await writeFile(temporary, `${JSON.stringify(latest)}\n`)
@@ -224,13 +284,22 @@ export function changedSelection(options: { file?: string; dir?: string } = {}):
   return async ({ config, cliArgs }) => {
     const raw = cliArgs.changed
     if (!raw) return
-    const cwd = config.cwd
+    const cwd = await realpath(config.cwd)
     const map = await readDependencyMap(
       options.file ? resolve(cwd, options.file) : dependencyFile(cwd, options.dir)
     )
+    const ignored: string[] = []
+    const relativeCache = relative(cwd, cacheDir(cwd, options.dir)).split('\\').join('/')
+    if (relativeCache && relativeCache !== '.' && !relativeCache.startsWith('..')) {
+      ignored.push(relativeCache)
+    }
+    if (cliArgs.agentFile) {
+      const report = relative(cwd, resolve(cwd, cliArgs.agentFile)).split('\\').join('/')
+      if (report && !report.startsWith('..')) ignored.push(report, `${report}.delta.json`)
+    }
     const changed =
       raw === 'auto'
-        ? await gitChangedPaths(cwd)
+        ? await gitChangedPaths(cwd, ignored)
         : raw
             .split(',')
             .map((path) => path.trim())

@@ -7,6 +7,7 @@
  * file that was distributed with this source code.
  */
 
+import { createHash } from 'node:crypto'
 import { relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import validator from './validator.js'
@@ -179,9 +180,17 @@ export class Planner {
     }
 
     this.#applyShard(suites)
+    const plannedFiles = suites
+      .flatMap((suite) =>
+        suite.filesURLs.map((url) =>
+          relative(this.#config.cwd, fileURLToPath(url)).split('\\').join('/')
+        )
+      )
+      .sort()
     setSelectionStats(this.#config, {
       collected: this.#collected,
-      planned: suites.reduce((total, suite) => total + suite.filesURLs.length, 0),
+      planned: plannedFiles.length,
+      signature: createHash('sha256').update(plannedFiles.join('\n')).digest('hex').slice(0, 16),
     })
     return suites
   }

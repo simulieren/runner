@@ -14,6 +14,9 @@ node bin/test.js --changed=auto --agent --agent-file=report.jsonl
 
 # or through the wrapper
 npx japa-agent -- node --import=@poppinss/ts-exec bin/test.ts
+
+# parallel coordinator, with automatic narrow-selection detection
+npx japa-parallel --workers=auto -- node --import=@poppinss/ts-exec bin/test.ts
 ```
 
 ## Flags
@@ -30,7 +33,7 @@ npx japa-agent -- node --import=@poppinss/ts-exec bin/test.ts
 | `--allow-known-failures` | Exit 0 when the only failures match `japa.baseline.json`. |
 | `--update-baseline` | Record this run's failures. Only a full run writes. |
 | `--failed-new` | With `--failed`, skip titles already in the baseline. |
-| `--workers=auto` | Use one worker for narrow selections. |
+| `--workers=auto` | Coordinator flag (`japa-parallel`): use one worker for narrow selections. |
 
 `japa-agent` accepts `--cwd`, `--out`, `--cache-dir`, `--full`, `--no-prepare`,
 `--timeout`, `--report` and `--no-metrics`.
@@ -63,6 +66,8 @@ the loop with `japa-agent --report`.
 With `--allow-known-failures`, a summary may include `"knownOnly": true`. The
 `ok` field still describes the raw test result; `knownOnly` says the run is green
 because every failure was already in the baseline and no setup error occurred.
+`"processError": true` marks setup, teardown, or unhandled errors separately from
+test failures.
 
 ## AdonisJS
 

@@ -55,6 +55,16 @@ configure({
       )
       if (process.env.TEST_TAMPER === '1') config.shardDurations = {}
     },
+    async ({ runner, config }) => {
+      if (process.env.TEST_PLUGIN_FILTER) {
+        config.filters.tests = [process.env.TEST_PLUGIN_FILTER]
+      }
+      if (process.env.TEST_LATE_UNHANDLED === '1') {
+        runner.on('runner:end', () => {
+          Promise.reject(new Error('Expected late fixture rejection'))
+        })
+      }
+    },
   ],
   setup: [
     async () => {

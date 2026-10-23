@@ -13,12 +13,13 @@
  * A test missing from the current report may simply not have been selected, so
  * "fixed" is only reported when the selection signature and total are identical.
  */
-export type AgentTestRow = { file?: string; title: string }
+export type AgentTestRow = { suite?: string; group?: string; file?: string; title: string }
 
 export type AgentSelection = {
   mode: string
   planned: number
   skipped: number
+  signature?: string
   fallback?: boolean
 }
 
@@ -45,7 +46,7 @@ export type AgentDelta = {
 const MAX_ROWS = 50
 
 function keyOf(row: AgentTestRow) {
-  return `${row.file ?? ''}\u0000${row.title}`
+  return `${row.suite ?? ''}\u0000${row.group ?? ''}\u0000${row.file ?? ''}\u0000${row.title}`
 }
 
 /** Parse JSON lines produced by the agent reporter. Unknown lines are ignored. */
@@ -75,6 +76,8 @@ export function parseAgentReport(text: string): ParsedAgentReport {
       }
     } else if (kind === 'test' && record.status === 'failed' && typeof record.title === 'string') {
       failures.push({
+        ...(typeof record.suite === 'string' ? { suite: record.suite } : {}),
+        ...(typeof record.group === 'string' ? { group: record.group } : {}),
         ...(typeof record.file === 'string' ? { file: record.file } : {}),
         title: record.title,
       })
@@ -90,7 +93,13 @@ function sameSelection(previous: AgentSummary | undefined, current: AgentSummary
   const a = previous.selection
   const b = current.selection
   if (!a || !b) return !a && !b
-  return a.mode === b.mode && a.planned === b.planned && a.skipped === b.skipped
+  return (
+    a.mode === b.mode &&
+    a.planned === b.planned &&
+    a.skipped === b.skipped &&
+    Boolean(a.signature && b.signature) &&
+    a.signature === b.signature
+  )
 }
 
 export function diffReports(

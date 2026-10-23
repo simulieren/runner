@@ -8,10 +8,12 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { createHash, randomUUID } from 'node:crypto'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
 import { availableParallelism } from 'node:os'
+import { filesAffectedBy, gitChangedPaths, readDependencyMap } from './dependencies.js'
+import { dependencyFile } from './cache_paths.js'
 import debug from './debug.js'
 import { getFailedTests, cacheFailedTests } from './plugins/retry_cache.js'
 import { baselineFile, updateBaseline, type BaselineEntry } from './failure_baseline.js'
@@ -45,6 +47,162 @@ export type ParallelResult = {
   baselineUpdated: boolean
   baselineChanges?: { added: number; removed: number }
   workers: { worker: number; exitCode: number; signal?: NodeJS.Signals; error?: string }[]
+}
+
+function optionValue(args: string[], name: string) {
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]
+    if (arg.startsWith(`${name}=`)) return arg.slice(name.length + 1)
+    if (arg === name) return args[index + 1]
+  }
+  return undefined
+}
+
+/** Freeze one changed-file selection for every worker. */
+async function changedFiles(cwd: string, args: string[]) {
+  const changed = optionValue(args, '--changed')
+  if (!changed) return undefined
+  const paths =
+    changed === 'auto'
+      ? await gitChangedPaths(cwd)
+      : changed
+          .split(',')
+          .map((path) => path.trim())
+          .filter(Boolean)
+  const map = await readDependencyMap(dependencyFile(cwd, optionValue(args, '--cache-dir')))
+  return filesAffectedBy(map, paths)
+}
+
+function replaceAgentFile(args: string[], file: string) {
+  const replaced: string[] = []
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]
+    if (arg.startsWith('--agent-file=')) {
+      replaced.push(`--agent-file=${file}`)
+    } else if (arg === '--agent-file') {
+      replaced.push(`--agent-file=${file}`)
+      index++
+    } else {
+      replaced.push(arg)
+    }
+  }
+  return replaced
+}
+
+function sumField(records: Record<string, unknown>[], key: string) {
+  return records.reduce(
+    (total, record) => total + (typeof record[key] === 'number' ? record[key] : 0),
+    0
+  )
+}
+
+async function mergeAgentReports(files: string[], target: string) {
+  const lines: string[] = []
+  const summaries: Record<string, unknown>[] = []
+  for (const file of files) {
+    const text = await readFile(file, 'utf8').catch(() => '')
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue
+      try {
+        const record = JSON.parse(line) as Record<string, unknown>
+        if (record.event === 'summary') summaries.push(record)
+        else lines.push(line)
+      } catch {
+        // Ignore a malformed worker line; the rest of the report is still useful.
+      }
+    }
+  }
+  if (!lines.length && !summaries.length) return
+
+  let summary: Record<string, unknown> | undefined
+  if (summaries.length) {
+    const selections = summaries
+      .map((item) => item.selection)
+      .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+    const signatures = selections
+      .map((item) => item.signature)
+      .filter((item) => typeof item === 'string')
+    const phases = summaries
+      .map((item) => item.phases)
+      .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+    const baselines = summaries
+      .map((item) => item.baseline)
+      .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+    const errorGroups = new Map<string, number>()
+    for (const item of summaries) {
+      const groups = Array.isArray(item.errorGroups) ? item.errorGroups : []
+      for (const group of groups) {
+        if (!group || typeof group !== 'object') continue
+        const typed = group as Record<string, unknown>
+        if (typeof typed.message !== 'string' || typeof typed.count !== 'number') continue
+        errorGroups.set(typed.message, (errorGroups.get(typed.message) ?? 0) + typed.count)
+      }
+    }
+    summary = {
+      event: 'summary',
+      ...Object.fromEntries(
+        ['total', 'passed', 'failed', 'skipped', 'todo', 'regression'].map((key) => [
+          key,
+          sumField(summaries, key),
+        ])
+      ),
+      durationMs: sumField(summaries, 'durationMs'),
+      ok: summaries.every((item) => item.ok === true),
+      ...(selections.length
+        ? {
+            selection: {
+              mode: selections.every((item) => item.mode === selections[0].mode)
+                ? selections[0].mode
+                : 'mixed',
+              planned: sumField(selections, 'planned'),
+              skipped: sumField(selections, 'skipped'),
+              ...(signatures.length === selections.length
+                ? {
+                    signature: createHash('sha256')
+                      .update([...signatures].sort().join('\n'))
+                      .digest('hex')
+                      .slice(0, 16),
+                  }
+                : {}),
+              ...(selections.some((item) => item.fallback === true) ? { fallback: true } : {}),
+            },
+          }
+        : {}),
+      ...(phases.length
+        ? {
+            phases: {
+              bootMs: Math.max(
+                ...phases.map((item) => (typeof item.bootMs === 'number' ? item.bootMs : 0))
+              ),
+              importMs: sumField(phases, 'importMs'),
+              testMs: sumField(phases, 'testMs'),
+            },
+          }
+        : {}),
+      ...(baselines.length
+        ? {
+            baseline: {
+              known: sumField(baselines, 'known'),
+              new: sumField(baselines, 'new'),
+              fixed: sumField(baselines, 'fixed'),
+            },
+          }
+        : {}),
+      ...(summaries.every((item) => item.knownOnly === true) ? { knownOnly: true } : {}),
+      ...(summaries.some((item) => item.nonTestErrors === true) ? { nonTestErrors: true } : {}),
+      ...(errorGroups.size
+        ? {
+            errorGroups: [...errorGroups].map(([message, count]) => ({ message, count })),
+          }
+        : {}),
+    }
+  }
+
+  await mkdir(join(target, '..'), { recursive: true })
+  await writeFile(
+    target,
+    `${[...lines, ...(summary ? [JSON.stringify(summary)] : [])].join('\n')}\n`
+  )
 }
 
 /**
@@ -81,6 +239,8 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
   const file = historyFile(cwd, options.historyFile)
   const history = await readHistory(file, cwd)
   const failed = await getFailedTests(cwd).catch(() => ({}) as { tests?: string[] })
+  const only = await changedFiles(cwd, options.args ?? [])
+  const agentReport = optionValue(options.args ?? [], '--agent-file')
   const runId = randomUUID()
   // Evaluate environment callbacks before spawning anything, so a configuration
   // error cannot leave a partially launched pool behind.
@@ -137,9 +297,15 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
           return new Promise<ParallelResult['workers'][number]>((done) => {
             let child: ChildProcess
             try {
+              const agentFile = agentReport ? join(directory, `agent-${worker}.jsonl`) : undefined
               child = spawn(
                 options.command,
-                [...(options.args ?? []), `--shard=${worker}/${count}`],
+                [
+                  ...(agentFile
+                    ? replaceAgentFile(options.args ?? [], agentFile)
+                    : (options.args ?? [])),
+                  `--shard=${worker}/${count}`,
+                ],
                 {
                   cwd,
                   detached: process.platform !== 'win32',
@@ -153,6 +319,7 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
                     JAPA_SPEED_RUN_ID: runId,
                     JAPA_SPEED_SNAPSHOT: snapshot,
                     JAPA_SPEED_OUTPUT: join(directory, `${worker}.json`),
+                    ...(only ? { JAPA_SPEED_ONLY: JSON.stringify(only) } : {}),
                     ...(options.updateBaseline ? { JAPA_SPEED_COLLECT_FAILURES: '1' } : {}),
                   },
                 }
@@ -171,6 +338,12 @@ export async function runParallel(options: ParallelOptions): Promise<ParallelRes
       )
     )
     if (escalation) await escalation
+    if (agentReport) {
+      await mergeAgentReports(
+        Array.from({ length: count }, (_, index) => join(directory, `agent-${index + 1}.jsonl`)),
+        resolve(cwd, agentReport)
+      ).catch((error) => debug('unable to merge agent reports: %O', error))
+    }
     let exitCode = aborted ? 130 : (workers.find((worker) => worker.exitCode !== 0)?.exitCode ?? 0)
     let historyUpdated = false
     let baselineUpdated = false

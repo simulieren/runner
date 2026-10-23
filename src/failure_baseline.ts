@@ -13,12 +13,13 @@ import { dirname, relative, resolve } from 'node:path'
 import debug from './debug.js'
 
 /**
- * A known-failing test, keyed by suite, file and expanded title. The key is
- * stable across runs and across worker assignment, so a baseline committed to a
- * repository still matches after the suite is sharded.
+ * A known-failing test, keyed by suite, group, file and expanded title. The key
+ * is stable across runs and across worker assignment, so a baseline committed to
+ * a repository still matches after the suite is sharded.
  */
 export type BaselineEntry = {
   suite: string
+  group?: string
   file: string
   title: string
   /** Consecutive full runs in which this failure appeared. */
@@ -28,7 +29,7 @@ export type BaselineEntry = {
 }
 
 export type Baseline = {
-  version: 1
+  version: 1 | 2
   failures: BaselineEntry[]
 }
 
@@ -37,24 +38,30 @@ export function baselineFile(cwd: string, file?: string) {
 }
 
 function keyOf(entry: BaselineEntry) {
-  return `${entry.suite}\u0000${entry.file}\u0000${entry.title}`
+  return `${entry.suite}\u0000${entry.group ?? ''}\u0000${entry.file}\u0000${entry.title}`
 }
 
 export function parseBaseline(value: unknown): Baseline {
-  if (!value || typeof value !== 'object' || (value as Baseline).version !== 1) {
-    return { version: 1, failures: [] }
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    !('version' in value) ||
+    (value.version !== 1 && value.version !== 2)
+  ) {
+    return { version: 2, failures: [] }
   }
   const failures = (value as Baseline).failures
-  if (!Array.isArray(failures)) return { version: 1, failures: [] }
+  if (!Array.isArray(failures)) return { version: 2, failures: [] }
   return {
-    version: 1,
+    version: 2,
     failures: failures.filter((entry): entry is BaselineEntry =>
       Boolean(
         entry &&
         typeof entry === 'object' &&
         typeof entry.suite === 'string' &&
         typeof entry.file === 'string' &&
-        typeof entry.title === 'string'
+        typeof entry.title === 'string' &&
+        (!('group' in entry) || typeof entry.group === 'string')
       )
     ),
   }
@@ -65,7 +72,7 @@ export async function readBaseline(file: string): Promise<Baseline> {
     return parseBaseline(JSON.parse(await readFile(file, 'utf8')))
   } catch (error) {
     debug('ignoring unavailable failure baseline %s: %O', file, error)
-    return { version: 1, failures: [] }
+    return { version: 2, failures: [] }
   }
 }
 
@@ -74,7 +81,7 @@ export async function writeBaseline(file: string, baseline: Baseline) {
   const temporary = `${file}.${process.pid}.tmp`
   const failures = [...baseline.failures].sort((a, b) => keyOf(a).localeCompare(keyOf(b)) || 0)
   try {
-    await writeFile(temporary, `${JSON.stringify({ version: 1, failures }, null, 2)}\n`)
+    await writeFile(temporary, `${JSON.stringify({ version: 2, failures }, null, 2)}\n`)
     await rename(temporary, file)
   } finally {
     await rm(temporary, { force: true }).catch(() => {})
@@ -95,12 +102,15 @@ export function collectFailures(
 ) {
   const failures: BaselineEntry[] = []
   let nonTestError = false
+  let pinned = false
   const stopTest = emitter.on('test:end', (payload) => {
+    if (payload.isPinned) pinned = true
     if (!payload.hasError) return
     const file = payload.meta?.fileName
     if (typeof file !== 'string') return
     failures.push({
       suite: String(payload.meta?.suite?.name ?? 'default'),
+      group: payload.meta?.group?.title,
       file: relative(cwd, file).split('\\').join('/'),
       title: payload.title.expanded,
     })
@@ -114,6 +124,7 @@ export function collectFailures(
   return {
     failures,
     hasNonTestError: () => nonTestError,
+    hasPinned: () => pinned,
     stop() {
       stopTest()
       stopGroup()
@@ -148,6 +159,7 @@ export function mergeBaseline(
     const old = existing.get(key)
     const merged: BaselineEntry = {
       suite: entry.suite,
+      ...(entry.group ? { group: entry.group } : {}),
       file: entry.file,
       title: entry.title,
       consecutive: (old?.consecutive ?? 0) + 1,
@@ -162,7 +174,7 @@ export function mergeBaseline(
     failures.push({ ...entry, consecutive: 0 })
   }
 
-  return { baseline: { version: 1, failures }, added, removed }
+  return { baseline: { version: 2, failures }, added, removed }
 }
 
 /** Read, merge and write a baseline under an exclusive lock. */

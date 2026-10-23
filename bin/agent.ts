@@ -95,18 +95,38 @@ function parse(argv: string[]): { options: Options; command: string[] } {
 
 function run(command: string, args: string[], cwd: string, timeout?: number) {
   return new Promise<number>((done, fail) => {
-    const child = spawn(command, args, { cwd, stdio: 'inherit' })
-    const timer = timeout
-      ? setTimeout(() => {
-          child.kill('SIGTERM')
-        }, timeout)
-      : undefined
-    child.once('error', (error) => {
+    const child = spawn(command, args, {
+      cwd,
+      stdio: 'inherit',
+      detached: process.platform !== 'win32',
+    })
+    let timer: NodeJS.Timeout | undefined
+    let escalation: NodeJS.Timeout | undefined
+    const stopTimers = () => {
       if (timer) clearTimeout(timer)
+      if (escalation) clearTimeout(escalation)
+    }
+    const signalTree = (signal: NodeJS.Signals) => {
+      if (!child.pid) return
+      try {
+        if (process.platform === 'win32') child.kill(signal)
+        else process.kill(-child.pid, signal)
+      } catch {
+        // The process may have exited between the timeout and the signal.
+      }
+    }
+    if (timeout) {
+      timer = setTimeout(() => {
+        signalTree('SIGTERM')
+        escalation = setTimeout(() => signalTree('SIGKILL'), 1000)
+      }, timeout)
+    }
+    child.once('error', (error) => {
+      stopTimers()
       fail(error)
     })
     child.once('close', (code, signal) => {
-      if (timer) clearTimeout(timer)
+      stopTimers()
       done(signal ? 130 : (code ?? 1))
     })
   })
@@ -235,6 +255,9 @@ async function main() {
       ? resolve(cwd, options.out)
       : join(cwd, 'node_modules/.cache/japa/agent.jsonl')
   const previous = await readReport(reportPath)
+  // A crash before the reporter starts must not turn the previous report into
+  // this run's result.
+  await writeFile(reportPath, '').catch(() => {})
   const runArgs = [...args, ...cacheArgs, '--agent']
   if (!explicitReport) runArgs.push(`--agent-file=${reportPath}`)
   if (!options.full && !selectionGiven) runArgs.push('--changed=auto')
