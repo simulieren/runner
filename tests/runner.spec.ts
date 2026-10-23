@@ -1288,6 +1288,20 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.deepEqual(map.files['thing.spec.mjs'], ['helper.mjs', 'thing.spec.mjs'])
   })
 
+  test('count only imports Node resolves when checking the graph', async () => {
+    const { hasRuntimeRelativeImport } = await import('../src/dependencies.js')
+    assert.isTrue(hasRuntimeRelativeImport("import { a } from './a.js'"))
+    assert.isTrue(hasRuntimeRelativeImport("export { a } from '../a.js'"))
+    assert.isTrue(hasRuntimeRelativeImport("import './side_effect.js'"))
+    assert.isTrue(hasRuntimeRelativeImport("const m = await import('./lazy.js')"))
+    assert.isTrue(hasRuntimeRelativeImport("const glob = 'tests/**/*.ts'\nimport('./later.js')"))
+    assert.isFalse(hasRuntimeRelativeImport("import type { A } from './types.js'"))
+    assert.isFalse(hasRuntimeRelativeImport("export type { A } from './types.js'"))
+    assert.isFalse(hasRuntimeRelativeImport("/**\n * export { default } from './foo_job.js'\n */"))
+    assert.isFalse(hasRuntimeRelativeImport("// import { a } from './a.js'"))
+    assert.isFalse(hasRuntimeRelativeImport("import { a } from '#app/a'"))
+  })
+
   test('complete the map for modules an app loads before configure', async (context) => {
     const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises')
     const { fileURLToPath, pathToFileURL } = await import('node:url')

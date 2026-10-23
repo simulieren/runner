@@ -32,10 +32,23 @@ export type DependencyMap = {
   files: Record<string, string[]>
 }
 
-/** Relative imports that should have produced a resolve edge. */
+// Only comments that open a line: a `/*` or `//` inside a string (a glob, a URL)
+// must never hide a real import, or the graph would be marked complete too early.
+const COMMENTS = /^\s*\/\*[\s\S]*?\*\/|^\s*\/\/.*$/gm
+const TYPE_ONLY = /\b(?:import|export)\s+type\b[^;]*?\bfrom\s*['"][^'"]+['"]/g
+const RELATIVE_IMPORT = /(?:\bfrom\s+|\bimport\s*\(|\brequire\s*\(|\bimport\s+)['"]\.{1,2}\//
+
+/**
+ * Relative imports that should have produced a resolve edge. Type-only imports
+ * and specifiers inside comments are erased before Node resolves anything, so
+ * counting them would mark a fully recorded graph incomplete.
+ */
+export function hasRuntimeRelativeImport(source: string) {
+  return RELATIVE_IMPORT.test(source.replace(COMMENTS, '').replace(TYPE_ONLY, ''))
+}
+
 async function hasRelativeImports(path: string) {
-  const source = await readFile(path, 'utf8').catch(() => '')
-  return /(?:\bfrom\s+|\bimport\s*\(|\brequire\s*\()\s*['"]\.{1,2}\//.test(source)
+  return hasRuntimeRelativeImport(await readFile(path, 'utf8').catch(() => ''))
 }
 
 type ImportEdges = Map<string, Set<string>>
