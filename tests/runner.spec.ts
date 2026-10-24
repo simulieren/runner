@@ -1493,6 +1493,93 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.equal(selectChanged(guessing, ['app/unrelated.ts']).kind, 'full')
   })
 
+  test('a test file the map has not recorded selects itself and is never dropped', async () => {
+    const { selectChanged } = await import('../src/dependencies.js')
+    const map = {
+      version: 2 as const,
+      complete: true,
+      files: { 'tests/unit/lease.spec.ts': ['app/lease.ts'] },
+      boot: [],
+      heuristic: [],
+    }
+    const configured = ['tests/unit/lease.spec.ts', 'tests/functional/lease.spec.ts']
+
+    // The name guess alone would pick only the recorded unit spec.
+    assert.deepEqual(selectChanged(map, ['tests/functional/lease.spec.ts'], configured), {
+      kind: 'exact',
+      files: ['tests/functional/lease.spec.ts'],
+    })
+    assert.equal(selectChanged(map, ['tests/functional/lease.spec.ts']).kind, 'heuristic')
+  })
+
+  test('selection never omits a test that reaches a changed path', async () => {
+    const { default: fc } = await import('fast-check')
+    const { selectChanged } = await import('../src/dependencies.js')
+    // Two specs share a name, so a guess by name can land on the wrong one.
+    const tests = ['unit/a.spec.ts', 'functional/a.spec.ts', 'unit/b.spec.ts', 'unit/c.spec.ts']
+    const sources = ['app/a.ts', 'app/b.ts', 'app/c.ts', 'config/app.ts', 'app/orphan.ts']
+    const scenario = fc.record({
+      recorded: fc.subarray(tests, { minLength: 1 }),
+      dependencies: fc.dictionary(fc.constantFrom(...tests), fc.subarray(sources)),
+      boot: fc.subarray(sources),
+      changed: fc.subarray([...tests, ...sources], { minLength: 1 }),
+      heuristic: fc.boolean(),
+    })
+
+    fc.assert(
+      fc.property(scenario, ({ recorded, dependencies, boot, changed, heuristic }) => {
+        const files = Object.fromEntries(recorded.map((file) => [file, dependencies[file] ?? []]))
+        const map = { version: 2 as const, complete: true, files, boot, heuristic: undefined }
+        const outcome = selectChanged(heuristic ? { ...map, heuristic: [] } : map, changed, tests)
+        if (outcome.kind === 'full') return
+
+        const touched = new Set(changed)
+        const expected = tests.filter((file) =>
+          file in files
+            ? [file, ...files[file]].some((path) => touched.has(path))
+            : touched.has(file)
+        )
+        assert.includeMembers(outcome.files, expected)
+        if (outcome.kind === 'exact') assert.sameMembers(outcome.files, expected)
+      }),
+      { numRuns: 2000 }
+    )
+  })
+
+  test('--changed keeps every test file the map has not recorded', async (context) => {
+    const { mkdtemp, mkdir, writeFile, rm, realpath } = await import('node:fs/promises')
+    const { fileURLToPath } = await import('node:url')
+    const cwd = await realpath(
+      await mkdtemp(fileURLToPath(new URL('../.deps-unrecorded-', import.meta.url)))
+    )
+    context.after(() => rm(cwd, { recursive: true, force: true }))
+    await mkdir(`${cwd}/tests`)
+    for (const name of ['old', 'other', 'pulled']) {
+      await writeFile(`${cwd}/tests/${name}.spec.ts`, '')
+    }
+    const map = {
+      version: 2,
+      complete: true,
+      files: { 'tests/old.spec.ts': ['app/a.ts'], 'tests/other.spec.ts': ['app/b.ts'] },
+      boot: [],
+    }
+    await writeFile(`${cwd}/deps.json`, JSON.stringify(map))
+
+    const { changedSelection } = await import('../src/dependencies.js')
+    const { Planner } = await import('../src/planner.js')
+    const config = new ConfigManager({ cwd, files: ['tests/*.spec.ts'] }, {}).hydrate()
+    await changedSelection({ file: 'deps.json' })({
+      config,
+      cliArgs: { changed: 'app/a.ts' },
+    } as never)
+    const { suites } = await new Planner(config).plan()
+
+    assert.deepEqual(
+      suites[0].filesURLs.map((url) => fileURLToPath(url).slice(cwd.length + 1)),
+      ['tests/old.spec.ts', 'tests/pulled.spec.ts']
+    )
+  })
+
   test('warn when preparing caches cannot see imports made before configure', async (context) => {
     const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
     const { fileURLToPath, pathToFileURL } = await import('node:url')

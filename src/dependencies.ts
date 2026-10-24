@@ -19,7 +19,8 @@ import debug from './debug.js'
 import { withCacheLock } from './cache_lock.js'
 import { setSelectionPlan } from './planning_state.js'
 import { warn } from './helpers.js'
-import type { HeuristicRule, PluginFn } from './types.js'
+import { FilesManager } from './files_manager.js'
+import type { HeuristicRule, NormalizedConfig, PluginFn } from './types.js'
 
 /**
  * Files each test file depends on, captured while it imports. Built by
@@ -127,11 +128,16 @@ function guessTests(path: string, testFiles: string[], rules: HeuristicRule[]) {
  * Pick the test files a set of changed paths can affect.
  *
  * A path reached through a test's imports (or a resolver) selects exactly those tests.
- * A path only boot code reaches, or one nothing reaches, runs the full suite, unless
- * the heuristic is on and can name tests for an unreached path. Running too much is
- * safe and running too little is not, so every doubt widens the run.
+ * A changed test file the map has not recorded yet (`testFiles` are the configured
+ * ones) selects itself. A path only boot code reaches, or one nothing reaches, runs
+ * the full suite, unless the heuristic is on and can name tests for an unreached path.
+ * Running too much is safe and running too little is not, so every doubt widens the run.
  */
-export function selectChanged(map: DependencyMap, changed: string[]): ChangedSelection {
+export function selectChanged(
+  map: DependencyMap,
+  changed: string[],
+  testFiles: string[] = []
+): ChangedSelection {
   if (!Object.keys(map.files).length) {
     return {
       kind: 'full',
@@ -153,11 +159,13 @@ export function selectChanged(map: DependencyMap, changed: string[]): ChangedSel
     }
   }
 
+  const configured = new Set(testFiles)
   const selected = new Set<string>()
   const unreached: string[] = []
   for (const path of wanted) {
     const tests = reachedBy.get(path)
     if (tests) tests.forEach((file) => selected.add(file))
+    else if (configured.has(path)) selected.add(path)
     else unreached.push(path)
   }
   if (!unreached.length) return { kind: 'exact', files: [...selected] }
@@ -185,8 +193,7 @@ export function selectChanged(map: DependencyMap, changed: string[]): ChangedSel
       kind: 'full',
       reason:
         `${unplaced.length} changed path(s) no test file imports (${sampleOf(unplaced)}). ` +
-        'Files loaded lazily (controllers, jobs) need a selection resolver; ' +
-        'a new test file needs --prepare-caches.',
+        'Files loaded lazily (controllers, jobs) need a selection resolver.',
     }
   }
   return { kind: 'heuristic', files: [...selected], guessed: unreached }
@@ -521,6 +528,16 @@ export function recordDependencies(options: { file?: string; dir?: string } = {}
   }
 }
 
+/** Every test file the config names, relative to `cwd`, before any filter. */
+async function configuredTestFiles(config: NormalizedConfig, cwd: string) {
+  const manager = new FilesManager()
+  const groups = 'suites' in config ? config.suites.map((suite) => suite.files) : [config.files]
+  const urls = await Promise.all(
+    groups.map((files) => manager.getFiles(cwd, files, config.exclude).catch(() => []))
+  )
+  return urls.flat().map((url) => relative(cwd, fileURLToPath(url)).split('\\').join('/'))
+}
+
 /**
  * Narrow the run to files affected by `--changed` paths. Falls back to the full
  * suite whenever the dependency map cannot answer confidently.
@@ -549,7 +566,7 @@ export function changedSelection(options: { file?: string; dir?: string } = {}):
             .split(',')
             .map((path) => path.trim())
             .filter(Boolean)
-    let outcome = selectChanged(map, changed)
+    let outcome = selectChanged(map, changed, await configuredTestFiles(config, cwd))
     if (outcome.kind === 'full' && hookUnavailable && !processEdges) {
       outcome = {
         kind: 'full',
@@ -567,9 +584,11 @@ export function changedSelection(options: { file?: string; dir?: string } = {}):
           `(${sampleOf(outcome.guessed)}). Run the full suite before relying on it.`
       )
     }
-    // The map names the complete set of known test files, so restricting to the
-    // selected ones is safe. A brand-new, unrecorded test file would be missed,
-    // which is why the map is only used after a full recorded run.
-    setSelectionPlan(config, { only: Object.freeze(outcome.files) })
+    // Restrict only the test files the map has recorded. One it has never seen (added
+    // or pulled since the map was written) has no record to rule it out, so it runs.
+    setSelectionPlan(config, {
+      only: Object.freeze(outcome.files),
+      onlyWithin: Object.freeze(Object.keys(map.files)),
+    })
   }
 }

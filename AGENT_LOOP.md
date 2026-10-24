@@ -57,6 +57,7 @@ before the first test file (config, providers, preloads, route files) form the b
 | Changed path | Runs |
 | --- | --- |
 | Reached by a test's imports or a resolver | Those test files. |
+| A configured test file the map has not recorded (a new spec) | That file. |
 | In the boot set and reached by no test | Everything. |
 | Reached by nothing, heuristic on, and a name or rule matches | The guessed files; the summary says `"heuristic": true`. |
 | Anything else | Everything, with the reason. |
@@ -175,7 +176,7 @@ Japa warns on stderr, so agent JSON on stdout stays parseable.
 | `--changed is running the full suite: no dependency map yet` | Run once with `--prepare-caches`. |
 | `... the dependency map is incomplete` | Call `recordImportsFromStart()` at the top of the entrypoint, then `--prepare-caches`. |
 | `... N changed path(s) are loaded at boot` | Expected for config, providers and route files. |
-| `... N changed path(s) no test file imports` | Add a `selection.resolvers` entry for lazily loaded files (controllers, jobs) or turn on `selection.heuristic`. A new spec needs `--prepare-caches`. |
+| `... N changed path(s) no test file imports` | Add a `selection.resolvers` entry for lazily loaded files (controllers, jobs) or turn on `selection.heuristic`. |
 | `--changed guessed tests by name` | The heuristic picked the tests; run the full suite before relying on it. |
 | `[japa-parallel] waiting for the run in process N to finish` | Another pool holds this project's workers. |
 | `... this Node has no module.registerHooks` | Use Node 22.15+ or 23.5+. |
@@ -188,7 +189,8 @@ The agent summary carries the same reason as `selection.fallbackReason`.
 ## Safety rules
 
 - A changed test file is always imported; changed source files select their dependants.
-- A file the index has never seen is always imported.
+- A file the index or the dependency map has never seen is always imported, so a spec
+  added or pulled since the map was written runs even when `--changed` narrows the run.
 - A file with runtime-built titles (datasets) is never skipped by a title filter.
 - `--changed` falls back to the full suite for any unknown path, unless the heuristic is
   on and names tests for it, and the summary then says so.

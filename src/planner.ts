@@ -68,11 +68,12 @@ export class Planner {
     const selection = getSelectionPlan(this.#config)
     if (!selection) return filesURLs
     const only = selection.only ? new Set<string>(selection.only) : undefined
+    const onlyWithin = selection.onlyWithin ? new Set<string>(selection.onlyWithin) : undefined
     const scope = new Set<string>(selection.skipWithin ?? [])
     const skip = new Set<string>(selection.skip ?? [])
     return filesURLs.filter((url) => {
       const path = relative(this.#config.cwd, fileURLToPath(url)).split('\\').join('/')
-      if (only) return only.has(path)
+      if (only) return only.has(path) || (onlyWithin !== undefined && !onlyWithin.has(path))
       return !scope.has(path) || !skip.has(path)
     })
   }

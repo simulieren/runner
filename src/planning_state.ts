@@ -16,6 +16,8 @@
 export type SelectionPlan = {
   /** Only these relative paths may be imported. */
   only?: readonly string[]
+  /** When set, `only` restricts these paths alone; a file outside them is always kept. */
+  onlyWithin?: readonly string[]
   /** Relative paths the index has an answer for. */
   skipWithin?: readonly string[]
   /** Relative paths proven unable to match the active filters. */
