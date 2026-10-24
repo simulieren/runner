@@ -1393,6 +1393,48 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.isAbove(autoWorkerCount([], 600_000), 1)
   })
 
+  test('cap an automatic pool at JAPA_MAX_WORKERS', async (context) => {
+    const { autoWorkerCount } = await import('../src/parallel.js')
+    const previous = process.env.JAPA_MAX_WORKERS
+    context.after(() => {
+      if (previous === undefined) delete process.env.JAPA_MAX_WORKERS
+      else process.env.JAPA_MAX_WORKERS = previous
+    })
+    process.env.JAPA_MAX_WORKERS = '2'
+    assert.equal(autoWorkerCount([], 600_000), 2)
+    assert.equal(autoWorkerCount([]), 2)
+    assert.equal(autoWorkerCount(['--changed=auto'], 4_000), 1)
+    process.env.JAPA_MAX_WORKERS = 'many'
+    assert.throws(() => autoWorkerCount([], 600_000), /JAPA_MAX_WORKERS must be a positive integer/)
+  })
+
+  test('start pool workers at a lower priority', async (context) => {
+    const { mkdtemp, readFile, rm } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { runParallel } = await import('../src/parallel.js')
+    const cwd = await mkdtemp(join(tmpdir(), 'japa-priority-'))
+    context.after(() => rm(cwd, { recursive: true, force: true }))
+    const probe = [
+      "const { getPriority } = require('node:os')",
+      'const until = Date.now() + 2000',
+      'while (getPriority() === 0 && Date.now() < until) {}',
+      "require('node:fs').writeFileSync(`priority-${process.env.JAPA_WORKER_ID}`, String(getPriority()))",
+    ].join(';')
+    await runParallel({
+      command: process.execPath,
+      args: ['-e', probe, '--'],
+      cwd,
+      workers: 2,
+      historyFile: 'history.json',
+      stdio: 'ignore',
+    })
+    const priorities = await Promise.all(
+      [1, 2].map((id) => readFile(join(cwd, `priority-${id}`), 'utf8'))
+    )
+    assert.deepEqual(priorities, ['10', '10'])
+  })
+
   test('keep configured reporters under --agent-file, replace them under --agent', async (context) => {
     const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises')
     const { fileURLToPath, pathToFileURL } = await import('node:url')
@@ -2084,7 +2126,8 @@ test.describe('Automatic duration history and worker coordination', () => {
         `--import=${loader}`,
         entry,
       ],
-      { cwd, env: { ...process.env, TEST_FAIL: '1' } }
+      // The fixture prints nothing itself; debug lines give the log something to hold.
+      { cwd, env: { ...process.env, TEST_FAIL: '1', NODE_DEBUG: 'japa:runner' } }
     ).then(
       (value) => ({ stdout: value.stdout, stderr: value.stderr }),
       (error: { stdout?: string; stderr?: string }) => ({

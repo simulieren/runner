@@ -33,8 +33,12 @@ npx japa-parallel --workers=auto -- node --import=@poppinss/ts-exec bin/test.ts
 | `--allow-known-failures` | Exit 0 when the only failures match `japa.baseline.json`. |
 | `--update-baseline` | Record this run's failures. Only a full run writes. |
 | `--failed-new` | With `--failed`, skip titles whose every recorded failure is a baseline failure of the same file. |
-| `--workers=auto` | Coordinator flag (`japa-parallel`): size the pool from the recorded durations of the planned files, one worker per ~10s of test time (at most 8). Without recorded durations, one worker for narrow selections. |
+| `--workers=auto` | Coordinator flag (`japa-parallel`): size the pool from the recorded durations of the planned files, one worker per ~10s of test time (at most 8, or `JAPA_MAX_WORKERS`). Without recorded durations, one worker for narrow selections. |
 | `JAPA_WORKERS=4` | Same as `--workers` for `japa-parallel`; the flag wins when both are set. |
+| `JAPA_MAX_WORKERS=4` | Ceiling for an automatic pool, which still picks one worker for a small selection. A fixed `JAPA_WORKERS` starts a pool even for one file. |
+
+Workers start at a lower OS priority (nice 10), so a pool yields the CPU to the editor
+and anything else the machine runs.
 
 `japa-agent` accepts `--cwd`, `--out`, `--cache-dir`, `--full`, `--no-prepare`,
 `--workers`, `--timeout`, `--report`, `--no-metrics` and `--verbose`. With `--workers=auto` (the

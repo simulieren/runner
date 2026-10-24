@@ -11,7 +11,7 @@ import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
-import { availableParallelism } from 'node:os'
+import { availableParallelism, setPriority } from 'node:os'
 import {
   gitChangedPaths,
   mapPolicy,
@@ -130,6 +130,20 @@ export function isWorkerSelection(value: unknown): value is WorkerSelection {
 
 /** Test time an extra worker must take over to pay for booting the app once more. */
 const WORKER_BREAK_EVEN_MS = 10_000
+
+/** Workers yield to the editor, the dev server and anything else the machine runs. */
+const WORKER_PRIORITY = 10
+
+/** The most workers an automatic pool starts; `JAPA_MAX_WORKERS` replaces the default. */
+function maxAutoWorkers() {
+  const raw = process.env.JAPA_MAX_WORKERS
+  if (raw === undefined || raw === '') return Math.max(1, Math.min(8, availableParallelism() - 2))
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`JAPA_MAX_WORKERS must be a positive integer, got "${raw}"`)
+  }
+  return value
+}
 
 /**
  * Recorded test time of the files a run will plan, or all of them when `only` is unset,
@@ -342,8 +356,7 @@ export async function mergeAgentReports(
  */
 export function autoWorkerCount(args: string[], estimatedMs?: number) {
   if (estimatedMs !== undefined) {
-    const cap = Math.max(1, Math.min(8, availableParallelism() - 2))
-    return Math.max(1, Math.min(cap, Math.floor(estimatedMs / WORKER_BREAK_EVEN_MS)))
+    return Math.max(1, Math.min(maxAutoWorkers(), Math.floor(estimatedMs / WORKER_BREAK_EVEN_MS)))
   }
   const narrow = args.some(
     (arg) =>
@@ -354,7 +367,7 @@ export function autoWorkerCount(args: string[], estimatedMs?: number) {
       arg.startsWith('--failed') ||
       arg.startsWith('--changed')
   )
-  return narrow ? 1 : Math.min(4, availableParallelism())
+  return narrow ? 1 : Math.min(4, availableParallelism(), maxAutoWorkers())
 }
 
 /** Only a change selection or the whole suite has a plan the history can price. */
@@ -544,6 +557,13 @@ async function runPool(options: ParallelOptions): Promise<ParallelResult> {
                 }
               )
               children.push(child)
+              if (child.pid !== undefined) {
+                try {
+                  setPriority(child.pid, WORKER_PRIORITY)
+                } catch {
+                  // The worker already exited, or the platform refused: it runs at normal priority.
+                }
+              }
             } catch (error) {
               done({ worker, exitCode: 1, error: String(error) })
               return
