@@ -97,8 +97,17 @@ export function hasRuntimeRelativeImport(source: string) {
   return RELATIVE_IMPORT.test(source.replace(COMMENTS, '').replace(TYPE_ONLY, ''))
 }
 
-async function hasRelativeImports(path: string) {
-  return hasRuntimeRelativeImport(await readFile(path, 'utf8').catch(() => ''))
+/** One read per file: a shared dependency is visited once for every test that reaches it. */
+function relativeImportChecker() {
+  const seen = new Map<string, Promise<boolean>>()
+  return (path: string) => {
+    let result = seen.get(path)
+    if (!result) {
+      result = readFile(path, 'utf8').then(hasRuntimeRelativeImport, () => false)
+      seen.set(path, result)
+    }
+    return result
+  }
 }
 
 type ImportEdges = Map<string, Set<string>>
@@ -539,6 +548,7 @@ export function recordDependencies(options: { file?: string; dir?: string } = {}
 
       const unrecorded = new Set<string>()
       if (completeRun && !importFailed) {
+        const hasRelativeImports = relativeImportChecker()
         for (const testFile of testFiles) {
           const root = pathToFileURL(join(cwd, testFile)).href
           if (await hasRelativeImports(join(cwd, testFile))) {
