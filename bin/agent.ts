@@ -336,8 +336,12 @@ async function main() {
     await appendFile(metricsFile(directory), `${JSON.stringify(metric)}\n`).catch(() => {})
   }
 
+  // The delta compares with the previous report; the baseline with known failures.
+  // Name both, or a run after a narrow one reads as a flood of new failures.
+  const baseline = current?.summary?.baseline
   process.stderr.write(
-    `japa-agent: exit=${exit} new=${delta.counts.new} fixed=${delta.counts.fixed} ` +
+    `japa-agent: exit=${exit} vs-last-run: new=${delta.counts.new} fixed=${delta.counts.fixed} ` +
+      (baseline ? `vs-baseline: new=${baseline.new} known=${baseline.known} ` : '') +
       `run=${runMs}ms report=${reportPath} delta=${deltaPath}\n`
   )
   return exit

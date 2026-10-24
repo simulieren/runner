@@ -2183,6 +2183,14 @@ test.describe('Agent loop safety', () => {
     assert.deepEqual(plannedSuites({}), ['default'])
   })
 
+  test('keep the baseline counts of an agent report summary', async () => {
+    const { parseAgentReport } = await import('../src/agent_delta.js')
+    const report = parseAgentReport(
+      '{"event":"summary","total":3,"baseline":{"known":2,"new":1,"fixed":0}}\n'
+    )
+    assert.deepEqual(report.summary?.baseline, { known: 2, new: 1, fixed: 0 })
+  })
+
   test('merge repeated retry failures once', async () => {
     const { diffFailures, mergeBaseline } = await import('../src/failure_baseline.js')
     const entry = { suite: 'default', file: 'a.spec.ts', title: 'a' }

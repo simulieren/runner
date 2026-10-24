@@ -31,6 +31,8 @@ export type AgentSummary = {
   knownOnly?: boolean
   selection?: AgentSelection
   phases?: { bootMs?: number; importMs?: number; testMs?: number }
+  /** Present with `--allow-known-failures` or `--update-baseline`. */
+  baseline?: { known: number; new: number; fixed: number }
 }
 
 export type ParsedAgentReport = {
@@ -75,6 +77,9 @@ export function parseAgentReport(text: string): ParsedAgentReport {
           : {}),
         ...(record.phases && typeof record.phases === 'object'
           ? { phases: record.phases as AgentSummary['phases'] }
+          : {}),
+        ...(record.baseline && typeof record.baseline === 'object'
+          ? { baseline: record.baseline as AgentSummary['baseline'] }
           : {}),
       }
     } else if (kind === 'test' && record.status === 'failed' && typeof record.title === 'string') {
