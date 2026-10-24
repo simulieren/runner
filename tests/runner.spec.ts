@@ -1520,6 +1520,30 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.equal(selectChanged(map, ['tests/functional/lease.spec.ts']).kind, 'heuristic')
   })
 
+  test('changed paths are relative to an app in a repository subdirectory', async (context) => {
+    const { mkdtemp, mkdir, rm, writeFile } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { execFileSync } = await import('node:child_process')
+    const { gitChangedPaths } = await import('../src/dependencies.js')
+    const repo = await mkdtemp(join(tmpdir(), 'japa-git-'))
+    context.after(() => rm(repo, { recursive: true, force: true }))
+    const app = join(repo, 'apps/web')
+    await mkdir(join(app, 'app'), { recursive: true })
+    await writeFile(join(app, 'app/lease.ts'), 'export {}\n')
+    await writeFile(join(repo, 'root.json'), '{}\n')
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'ignore' })
+    git('init', '-q')
+    git('add', '.')
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init')
+    await writeFile(join(app, 'app/lease.ts'), 'export const a = 1\n')
+    await writeFile(join(app, 'app/new.ts'), 'export {}\n')
+    await writeFile(join(repo, 'root.json'), '{"a":1}\n')
+
+    const changed = await gitChangedPaths(app)
+    assert.deepEqual(changed.sort(), ['app/lease.ts', 'app/new.ts'])
+  })
+
   test('without the configured files, unknown paths are pending instead of a full run', async () => {
     const { selectChanged } = await import('../src/dependencies.js')
     const map = {

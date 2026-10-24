@@ -368,7 +368,8 @@ export async function gitChangedPaths(cwd: string, ignored: string[] = []): Prom
   const run = promisify(execFile)
   try {
     const [modified, untracked] = await Promise.all([
-      run('git', ['diff', '--name-only', 'HEAD'], { cwd, timeout: 5000 }),
+      // `--relative`: diff prints repo-root paths, which miss an app in a monorepo subdirectory.
+      run('git', ['diff', '--name-only', '--relative', 'HEAD'], { cwd, timeout: 5000 }),
       run('git', ['ls-files', '--others', '--exclude-standard'], { cwd, timeout: 5000 }),
     ])
     const lines = `${modified.stdout}\n${untracked.stdout}`
