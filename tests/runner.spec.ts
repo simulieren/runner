@@ -1450,9 +1450,8 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.isFalse(hasRuntimeRelativeImport("export type { A } from './types.js'"))
     assert.isFalse(hasRuntimeRelativeImport("/**\n * export { default } from './foo_job.js'\n */"))
     assert.isFalse(hasRuntimeRelativeImport("// import { a } from './a.js'"))
-    // `#` subpath imports reach project code just like relative ones.
-    assert.isTrue(hasRuntimeRelativeImport("import { a } from '#app/a'"))
-    assert.isFalse(hasRuntimeRelativeImport("import { a } from '@scope/a'"))
+    // An alias import used only as a type is erased by TypeScript, so aliases do not count.
+    assert.isFalse(hasRuntimeRelativeImport("import { a } from '#app/a'"))
   })
 
   test('select changed files by imports, widen on boot code, guess only when asked', async () => {

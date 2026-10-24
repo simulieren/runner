@@ -83,11 +83,13 @@ export type ChangedSelection =
 // must never hide a real import, or the graph would be marked complete too early.
 const COMMENTS = /^\s*\/\*[\s\S]*?\*\/|^\s*\/\/.*$/gm
 const TYPE_ONLY = /\b(?:import|export)\s+type\b[^;]*?\bfrom\s*['"][^'"]+['"]/g
-// Relative specifiers and `#` subpath imports, the two ways a file reaches project code.
-const RELATIVE_IMPORT = /(?:\bfrom\s+|\bimport\s*\(|\brequire\s*\(|\bimport\s+)['"](?:\.{1,2}\/|#)/
+// Relative specifiers only. `#` subpath imports are not counted: TypeScript drops a value
+// import used only as a type, and alias imports are where that habit is common, so they
+// would mark complete maps incomplete.
+const RELATIVE_IMPORT = /(?:\bfrom\s+|\bimport\s*\(|\brequire\s*\(|\bimport\s+)['"]\.{1,2}\//
 
 /**
- * Project imports (relative or `#` aliases) that should have produced a resolve edge. Type-only imports
+ * Relative imports that should have produced a resolve edge. Type-only imports
  * and specifiers inside comments are erased before Node resolves anything, so
  * counting them would mark a fully recorded graph incomplete.
  */

@@ -228,5 +228,9 @@ The agent summary carries the same reason as `selection.fallbackReason`.
   incomplete, so `--changed` always runs the full suite.
 - `--prepare-caches` imports test files without running them, so an `await import()`
   inside a test body is recorded only by a full run.
+- The completeness check looks for relative imports only. A file loaded before
+  `recordImportsFromStart()` that reaches project code through `#` aliases is not caught;
+  counting aliases flags every alias import TypeScript erased because it was used as a
+  type, which in one AdonisJS app made the whole map incomplete.
 - Application boot remains the floor for targeted runs.
 - Caches are per application directory and are safe to delete.
