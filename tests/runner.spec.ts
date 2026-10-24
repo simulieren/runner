@@ -1450,7 +1450,9 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.isFalse(hasRuntimeRelativeImport("export type { A } from './types.js'"))
     assert.isFalse(hasRuntimeRelativeImport("/**\n * export { default } from './foo_job.js'\n */"))
     assert.isFalse(hasRuntimeRelativeImport("// import { a } from './a.js'"))
-    assert.isFalse(hasRuntimeRelativeImport("import { a } from '#app/a'"))
+    // `#` subpath imports reach project code just like relative ones.
+    assert.isTrue(hasRuntimeRelativeImport("import { a } from '#app/a'"))
+    assert.isFalse(hasRuntimeRelativeImport("import { a } from '@scope/a'"))
   })
 
   test('select changed files by imports, widen on boot code, guess only when asked', async () => {
@@ -1460,7 +1462,13 @@ test.describe('Automatic duration history and worker coordination', () => {
       'tests/billing/invoice.spec.ts': ['app/model.ts'],
       'tests/modules/shop/cart.spec.ts': ['app/model.ts'],
     }
-    const map = { version: 2 as const, complete: true, files, boot: ['config/app.ts'] }
+    const map = {
+      version: 3 as const,
+      complete: true,
+      files,
+      boot: ['config/app.ts'],
+      bridged: [],
+    }
     const reasonOf = (outcome: ReturnType<typeof selectChanged>) =>
       outcome.kind === 'full' ? outcome.reason : ''
 
@@ -1496,10 +1504,11 @@ test.describe('Automatic duration history and worker coordination', () => {
   test('a test file the map has not recorded selects itself and is never dropped', async () => {
     const { selectChanged } = await import('../src/dependencies.js')
     const map = {
-      version: 2 as const,
+      version: 3 as const,
       complete: true,
       files: { 'tests/unit/lease.spec.ts': ['app/lease.ts'] },
       boot: [],
+      bridged: [],
       heuristic: [],
     }
     const configured = ['tests/unit/lease.spec.ts', 'tests/functional/lease.spec.ts']
@@ -1522,15 +1531,38 @@ test.describe('Automatic duration history and worker coordination', () => {
       recorded: fc.subarray(tests, { minLength: 1 }),
       dependencies: fc.dictionary(fc.constantFrom(...tests), fc.subarray(sources)),
       boot: fc.subarray(sources),
+      bridged: fc.subarray(sources),
       changed: fc.subarray([...tests, ...sources], { minLength: 1 }),
-      heuristic: fc.boolean(),
+      mapGuesses: fc.boolean(),
+      guesses: fc.boolean(),
+      global: fc.boolean(),
     })
 
     fc.assert(
-      fc.property(scenario, ({ recorded, dependencies, boot, changed, heuristic }) => {
+      fc.property(scenario, (input) => {
+        const { recorded, dependencies, boot, bridged, changed } = input
         const files = Object.fromEntries(recorded.map((file) => [file, dependencies[file] ?? []]))
-        const map = { version: 2 as const, complete: true, files, boot, heuristic: undefined }
-        const outcome = selectChanged(heuristic ? { ...map, heuristic: [] } : map, changed, tests)
+        const map = {
+          version: 3 as const,
+          complete: true,
+          files,
+          boot,
+          bridged,
+          ...(input.mapGuesses ? { heuristic: [] } : {}),
+        }
+        const policy = {
+          ...(input.guesses ? { heuristic: [] } : {}),
+          ...(input.global ? { global: ['config/'] } : {}),
+        }
+        const outcome = selectChanged(map, changed, tests, policy)
+
+        // Any test can depend on a global or package-loaded path.
+        const anywhere = changed.some(
+          (path) => bridged.includes(path) || (input.global && path.startsWith('config/'))
+        )
+        if (anywhere) assert.equal(outcome.kind, 'full')
+        // The current config decides whether guessing is allowed, not the map.
+        if (!input.guesses) assert.notEqual(outcome.kind, 'heuristic')
         if (outcome.kind === 'full') return
 
         const touched = new Set(changed)
@@ -1558,10 +1590,11 @@ test.describe('Automatic duration history and worker coordination', () => {
       await writeFile(`${cwd}/tests/${name}.spec.ts`, '')
     }
     const map = {
-      version: 2,
+      version: 3,
       complete: true,
       files: { 'tests/old.spec.ts': ['app/a.ts'], 'tests/other.spec.ts': ['app/b.ts'] },
       boot: [],
+      bridged: [],
     }
     await writeFile(`${cwd}/deps.json`, JSON.stringify(map))
 
@@ -1652,6 +1685,90 @@ test.describe('Automatic duration history and worker coordination', () => {
     const map = JSON.parse(await readFile(dependencyFile(cwd), 'utf8'))
     assert.deepEqual(map.files['app.spec.mjs'], ['app.spec.mjs', 'booted.mjs', 'leaf.mjs'])
     assert.isTrue(map.complete)
+  })
+
+  test('a file a package loads after boot runs everything when it changes', async (context) => {
+    const { mkdtemp, mkdir, writeFile, readFile, rm } = await import('node:fs/promises')
+    const { fileURLToPath, pathToFileURL } = await import('node:url')
+    const cwd = await mkdtemp(fileURLToPath(new URL('../.deps-bridge-', import.meta.url)))
+    context.after(() => rm(cwd, { recursive: true, force: true }))
+    await mkdir(`${cwd}/node_modules/helper`, { recursive: true })
+    await writeFile(`${cwd}/shared.mjs`, 'export const shared = 1\n')
+    await writeFile(
+      `${cwd}/node_modules/helper/index.mjs`,
+      "export { shared } from '../../shared.mjs'\n"
+    )
+    await writeFile(
+      `${cwd}/via_package.spec.mjs`,
+      "import { shared } from './node_modules/helper/index.mjs'\nexport default shared\n"
+    )
+    await writeFile(`${cwd}/direct.spec.mjs`, "export { shared } from './shared.mjs'\n")
+
+    const { recordImportsFromStart, recordDependencies, selectChanged, readDependencyMap } =
+      await import('../src/dependencies.js')
+    const { dependencyFile } = await import('../src/cache_paths.js')
+    assert.isTrue(recordImportsFromStart())
+    const listeners = new Map<string, () => void>()
+    const emitter = { once: (name: string, fn: () => void) => listeners.set(name, fn) }
+    const config = {
+      cwd,
+      importer: async (url: URL) => {
+        await import(url.href)
+      },
+    }
+    await recordDependencies()({ config, emitter, cliArgs: { prepareCaches: true } } as never)
+    await config.importer(pathToFileURL(`${cwd}/via_package.spec.mjs`))
+    await config.importer(pathToFileURL(`${cwd}/direct.spec.mjs`))
+    listeners.get('runner:end')?.()
+    await new Promise((done) => setTimeout(done, 100))
+
+    const map = await readDependencyMap(dependencyFile(cwd))
+    assert.deepEqual(map.bridged, ['shared.mjs'])
+    // Only direct.spec.mjs imports shared.mjs as far as the walk can tell.
+    assert.equal(selectChanged(map, ['shared.mjs']).kind, 'full')
+    assert.include(JSON.parse(await readFile(dependencyFile(cwd), 'utf8')).bridged, 'shared.mjs')
+  })
+
+  test('a resolver that throws revokes a complete map', async (context) => {
+    const { mkdtemp, mkdir, writeFile, rm } = await import('node:fs/promises')
+    const { dirname } = await import('node:path')
+    const { fileURLToPath, pathToFileURL } = await import('node:url')
+    const cwd = await mkdtemp(fileURLToPath(new URL('../.deps-resolver-', import.meta.url)))
+    context.after(() => rm(cwd, { recursive: true, force: true }))
+    await writeFile(`${cwd}/a.spec.mjs`, 'export default 1\n')
+
+    const { recordImportsFromStart, recordDependencies, readDependencyMap } =
+      await import('../src/dependencies.js')
+    const { dependencyFile } = await import('../src/cache_paths.js')
+    await mkdir(dirname(dependencyFile(cwd)), { recursive: true })
+    const previous = { version: 3, complete: true, files: {}, boot: [], bridged: [] }
+    await writeFile(dependencyFile(cwd), JSON.stringify(previous))
+    assert.isTrue(recordImportsFromStart())
+    const warnings: string[] = []
+    context.mock.method(console, 'error', (message: string) => warnings.push(String(message)))
+    const listeners = new Map<string, () => void>()
+    const emitter = { once: (name: string, fn: () => void) => listeners.set(name, fn) }
+    const config = {
+      cwd,
+      selection: {
+        resolvers: [
+          () => {
+            throw new Error('route table unavailable')
+          },
+        ],
+      },
+      importer: async (url: URL) => {
+        await import(url.href)
+      },
+    }
+    await recordDependencies()({ config, emitter, cliArgs: { prepareCaches: true } } as never)
+    await config.importer(pathToFileURL(`${cwd}/a.spec.mjs`))
+    listeners.get('runner:end')?.()
+    await new Promise((done) => setTimeout(done, 100))
+
+    const map = await readDependencyMap(dependencyFile(cwd))
+    assert.isFalse(map.complete)
+    assert.isTrue(warnings.some((line) => line.includes('route table unavailable')))
   })
 
   test('record a complete entry for every imported file, filtered or not', async (context) => {
@@ -1941,6 +2058,163 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.isFalse(changed.baselineUpdated)
   })
 
+  test('parallel --changed keeps unrecorded specs and honours the current policy', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { mkdir, writeFile } = await import('node:fs/promises')
+    const { dirname } = await import('node:path')
+    const { dependencyFile } = await import('../src/cache_paths.js')
+    const { runParallel } = await import('../src/parallel.js')
+    const files = Object.fromEntries(
+      [0, 1, 2, 3, 4].map((i) => [`file${i}.spec.ts`, i === 0 ? ['app/a.ts'] : []])
+    )
+    const map = { version: 3, complete: true, files, boot: [], bridged: [] }
+    await mkdir(dirname(dependencyFile(cwd)), { recursive: true })
+    await writeFile(dependencyFile(cwd), JSON.stringify(map))
+    const options = {
+      command: process.execPath,
+      args: [`--import=${loader}`, entry, '--changed=app/a.ts'],
+      cwd,
+      workers: 2,
+      historyFile: 'history.json',
+      stdio: 'ignore' as const,
+    }
+    const imported = async () => {
+      const rows = (await Promise.all([1, 2].map((id) => json(`${cwd}/observed-${id}.json`)))) as {
+        imported: string[]
+      }[]
+      return rows.flatMap((row) => row.imported).sort()
+    }
+
+    const narrowed = await runParallel(options)
+    assert.equal(narrowed.exitCode, 0)
+    // file5 is not in the map, so nothing can rule it out.
+    assert.deepEqual(await imported(), ['file0.spec.ts', 'file5.spec.ts'])
+
+    // Prepared with guessing on; this config has it off, so the workers run everything.
+    await writeFile(dependencyFile(cwd), JSON.stringify({ ...map, heuristic: [] }))
+    const widened = await runParallel(options)
+    assert.equal(widened.exitCode, 0)
+    assert.lengthOf(await imported(), 6)
+  })
+
+  test('an unhandled rejection in global setup fails the run', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { runParallel } = await import('../src/parallel.js')
+    const serialRun = await serial(cwd, entry, loader).then(
+      () => 0,
+      (error: { code?: number }) => error.code
+    )
+    assert.equal(serialRun, 0)
+    const env = { ...process.env, TEST_SETUP_UNHANDLED: '1' }
+    const failedSerial = await (async () => {
+      const { execFile } = await import('node:child_process')
+      const { promisify } = await import('node:util')
+      return promisify(execFile)(process.execPath, [`--import=${loader}`, entry], { cwd, env })
+        .then(() => 0)
+        .catch((error: { code?: number }) => error.code)
+    })()
+    assert.notEqual(failedSerial, 0)
+
+    const result = await runParallel({
+      command: process.execPath,
+      args: [`--import=${loader}`, entry, '--update-baseline'],
+      cwd,
+      workers: 2,
+      historyFile: 'history.json',
+      stdio: 'ignore' as const,
+      updateBaseline: true,
+      env: { TEST_SETUP_UNHANDLED: '1' },
+    })
+    assert.notEqual(result.exitCode, 0)
+    assert.isFalse(result.historyUpdated)
+    assert.isFalse(result.baselineUpdated)
+  })
+
+  test('japa-agent on a pool still updates the baseline', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    const { access } = await import('node:fs/promises')
+    const { fileURLToPath } = await import('node:url')
+    const wrapper = fileURLToPath(new URL('../bin/agent.ts', import.meta.url))
+    await promisify(execFile)(
+      process.execPath,
+      [
+        '--import=@poppinss/ts-exec',
+        wrapper,
+        '--no-prepare',
+        '--full',
+        '--workers=2',
+        '--',
+        process.execPath,
+        `--import=${loader}`,
+        entry,
+        '--update-baseline',
+      ],
+      { cwd, env: { ...process.env, TEST_FAIL: '1' } }
+    ).catch(() => {})
+    await access(`${cwd}/japa.baseline.json`)
+  })
+
+  test('auto worker count prices only the named suites', async (context) => {
+    const { cwd } = await fixture(context)
+    const { writeFile, realpath } = await import('node:fs/promises')
+    const { availableParallelism } = await import('node:os')
+    const { plannedWorkerCount } = await import('../src/parallel.js')
+    const durations = { 'unit:a.spec.ts': 1_000, 'functional:b.spec.ts': 200_000 }
+    const history = { version: 1, cwd: await realpath(cwd), durations }
+    await writeFile(`${cwd}/history.json`, JSON.stringify(history))
+    const count = (args: string[]) => plannedWorkerCount({ args, cwd, historyFile: 'history.json' })
+
+    assert.equal(await count(['bin/test.ts', 'unit']), 1)
+    assert.equal(await count(['bin/test.ts']), Math.max(1, Math.min(8, availableParallelism() - 2)))
+  })
+
+  test('a merged summary is ok only when every worker reported and passed', async (context) => {
+    const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises')
+    const { fileURLToPath } = await import('node:url')
+    const { mergeAgentReports } = await import('../src/parallel.js')
+    const dir = await mkdtemp(fileURLToPath(new URL('../.merge-', import.meta.url)))
+    context.after(() => rm(dir, { recursive: true, force: true }))
+    const summary = (fields: Record<string, unknown>) =>
+      `${JSON.stringify({ event: 'summary', total: 1, passed: 1, failed: 0, ...fields })}\n`
+    const merged = async (reports: string[], workers: { exitCode: number; error?: string }[]) => {
+      const files = await Promise.all(
+        reports.map(async (text, index) => {
+          const file = `${dir}/agent-${index}.jsonl`
+          await writeFile(file, text)
+          return file
+        })
+      )
+      await mergeAgentReports(files, `${dir}/merged.jsonl`, undefined, workers)
+      const text = await readFile(`${dir}/merged.jsonl`, 'utf8')
+      return JSON.parse(text.trim())
+    }
+    const fine = { exitCode: 0 }
+
+    const dead = await merged([summary({ ok: true }), ''], [fine, { exitCode: 1, error: 'died' }])
+    assert.isFalse(dead.ok)
+    assert.isTrue(dead.processError)
+    assert.equal(dead.missingSummaries, 1)
+
+    const crashed = await merged(
+      [summary({ ok: true }), summary({ ok: true, processError: true })],
+      [fine, fine]
+    )
+    assert.isTrue(crashed.processError)
+
+    const known = await merged(
+      [summary({ ok: false, knownOnly: true }), summary({ ok: true })],
+      [{ exitCode: 0 }, fine]
+    )
+    assert.isTrue(known.knownOnly)
+    const real = await merged(
+      [summary({ ok: false }), summary({ ok: true })],
+      [{ exitCode: 1 }, fine]
+    )
+    assert.notProperty(real, 'knownOnly')
+  })
+
   test('reject a parallel baseline update when a worker has a process error', async (context) => {
     const { cwd, entry, loader } = await fixture(context)
     const { writeFile } = await import('node:fs/promises')
@@ -2207,6 +2481,85 @@ test.describe('Automatic duration history and worker coordination', () => {
 })
 
 test.describe('Agent loop safety', () => {
+  test('a run lock wait can be cancelled, and an ownerless lock is recovered', async (context) => {
+    const { mkdtemp, writeFile, utimes, rm } = await import('node:fs/promises')
+    const { fileURLToPath } = await import('node:url')
+    const { withRunLock } = await import('../src/cache_lock.js')
+    const dir = await mkdtemp(fileURLToPath(new URL('../.run-lock-', import.meta.url)))
+    context.after(() => rm(dir, { recursive: true, force: true }))
+    const lock = `${dir}/parallel.lock`
+
+    // Held by a live process: this one.
+    await writeFile(lock, String(process.pid))
+    const controller = new AbortController()
+    setTimeout(() => controller.abort(new Error('cancelled')), 50)
+    await rejects(
+      withRunLock(
+        lock,
+        async () => 'ran',
+        () => {},
+        controller.signal
+      ),
+      /cancelled/
+    )
+
+    // Created, then the owner died before writing its pid.
+    await writeFile(lock, '')
+    const old = new Date(Date.now() - 60_000)
+    await utimes(lock, old, old)
+    assert.equal(
+      await withRunLock(
+        lock,
+        async () => 'ran',
+        () => {}
+      ),
+      'ran'
+    )
+  })
+
+  test('the selection signature changes with the title filter', async () => {
+    const { getSelectionStats } = await import('../src/planning_state.js')
+    const { Planner } = await import('../src/planner.js')
+    const signature = async (tests: string[]) => {
+      const config = new ConfigManager({ files: ['tests/core.spec.ts'] }, {}).hydrate()
+      config.filters.tests = tests
+      await new Planner(config).plan()
+      return getSelectionStats(config)?.signature
+    }
+    assert.notEqual(await signature(['a']), await signature(['b']))
+    assert.equal(await signature(['a']), await signature(['a']))
+  })
+
+  test('--failed-new keeps a title another file also fails under', async (context) => {
+    const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+    const { fileURLToPath } = await import('node:url')
+    const { cacheFailedTests } = await import('../src/plugins/retry_cache.js')
+    const cwd = await mkdtemp(fileURLToPath(new URL('../.failed-new-', import.meta.url)))
+    context.after(() => rm(cwd, { recursive: true, force: true }))
+    await writeFile(`${cwd}/package.json`, '{"private":true}')
+    const baseline = {
+      version: 2,
+      failures: [{ suite: 'unit', file: 'a.spec.ts', title: 'same' }],
+    }
+    await writeFile(`${cwd}/japa.baseline.json`, JSON.stringify(baseline))
+    const filtered = async (failures: { file: string; title: string }[]) => {
+      await cacheFailedTests(['same'], cwd, failures)
+      const config = { cwd, teardown: [], filters: {} as { tests?: string[] } }
+      const emitter = { on: () => {} }
+      await retryPlugin({ config, emitter, cliArgs: { failed: true, failedNew: true } } as never)
+      return config.filters.tests
+    }
+
+    assert.deepEqual(
+      await filtered([
+        { file: 'a.spec.ts', title: 'same' },
+        { file: 'b.spec.ts', title: 'same' },
+      ]),
+      ['same']
+    )
+    assert.isUndefined(await filtered([{ file: 'a.spec.ts', title: 'same' }]))
+  })
+
   test('never prune files for a negated tag filter', async () => {
     const { shouldSkipFile } = await import('../src/selection_index.js')
     const entry = { mtimeMs: 0, size: 0, tests: [], groups: [], tags: ['@github'] }
@@ -2357,10 +2710,11 @@ test.describe('Agent loop safety', () => {
       await writeFile(
         dependencyFile(cwd),
         JSON.stringify({
-          version: 2,
+          version: 3,
           complete: true,
           files: { 'test.spec.ts': ['helper.ts'] },
           boot: [],
+          bridged: [],
         })
       )
       const registered = {
@@ -2396,10 +2750,12 @@ test.describe('Agent loop safety', () => {
     try {
       await writeFile(`${cwd}/index.json`, JSON.stringify({ version: 1, files: null }))
       assert.deepEqual(await readIndex(`${cwd}/index.json`), emptyIndex())
-      const empty = { version: 2 as const, complete: false, files: {}, boot: [] }
-      assert.deepEqual(parseDependencyMap({ version: 2, files: null, boot: [] }), empty)
-      // A version 1 map walked through packages and is never trusted.
+      const empty = { version: 3 as const, complete: false, files: {}, boot: [], bridged: [] }
+      assert.deepEqual(parseDependencyMap({ version: 3, files: null, boot: [] }), empty)
+      // Version 1 walked through packages, version 2 never recorded package bridges.
       assert.deepEqual(parseDependencyMap({ version: 1, complete: true, files: {} }), empty)
+      const v2 = { version: 2, complete: true, files: {}, boot: [] }
+      assert.deepEqual(parseDependencyMap(v2), empty)
     } finally {
       await rm(cwd, { recursive: true, force: true })
     }

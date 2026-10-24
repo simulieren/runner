@@ -86,6 +86,12 @@ export type SelectionOptions = {
    * instead of the full suite. The selection is reported as heuristic. Off by default.
    */
   heuristic?: boolean | HeuristicRule[]
+  /**
+   * Path prefixes (`*` stands for one segment) whose change can affect any test even
+   * when some test imports them: config, bootstrap and route files, whose effect is
+   * loading itself. A change to one runs the full suite.
+   */
+  global?: string[]
 }
 
 /**

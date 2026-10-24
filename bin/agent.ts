@@ -159,9 +159,22 @@ async function runPool(
   const controller = new AbortController()
   const timer = timeout ? setTimeout(() => controller.abort(), timeout) : undefined
   try {
-    const result = await runParallel({ command, args, cwd, workers, signal: controller.signal })
+    const updateBaseline = args.includes('--update-baseline')
+    const result = await runParallel({
+      command,
+      args,
+      cwd,
+      workers,
+      signal: controller.signal,
+      updateBaseline,
+    })
     for (const worker of result.workers) {
       if (worker.error) console.error(`[japa-parallel] worker ${worker.worker}: ${worker.error}`)
+    }
+    if (updateBaseline && !result.baselineUpdated) {
+      console.error(
+        `japa-agent: the failure baseline was not updated: ${result.baselineSkipped ?? 'unknown'}`
+      )
     }
     return controller.signal.aborted ? 130 : result.exitCode
   } finally {

@@ -32,7 +32,7 @@ npx japa-parallel --workers=auto -- node --import=@poppinss/ts-exec bin/test.ts
 | `--agent-file=path` | Write that JSON to a file. Without `--agent`, the configured reporters keep running alongside it. |
 | `--allow-known-failures` | Exit 0 when the only failures match `japa.baseline.json`. |
 | `--update-baseline` | Record this run's failures. Only a full run writes. |
-| `--failed-new` | With `--failed`, skip titles already in the baseline. |
+| `--failed-new` | With `--failed`, skip titles whose every recorded failure is a baseline failure of the same file. |
 | `--workers=auto` | Coordinator flag (`japa-parallel`): size the pool from the recorded durations of the planned files, one worker per ~10s of test time (at most 8). Without recorded durations, one worker for narrow selections. |
 | `JAPA_WORKERS=4` | Same as `--workers` for `japa-parallel`; the flag wins when both are set. |
 
@@ -56,13 +56,15 @@ before the first test file (config, providers, preloads, route files) form the b
 
 | Changed path | Runs |
 | --- | --- |
+| Matches `selection.global` | Everything. |
+| Loaded by a package after boot and named by no resolver | Everything. |
 | Reached by a test's imports or a resolver | Those test files. |
 | A configured test file the map has not recorded (a new spec) | That file. |
 | In the boot set and reached by no test | Everything. |
 | Reached by nothing, heuristic on, and a name or rule matches | The guessed files; the summary says `"heuristic": true`. |
 | Anything else | Everything, with the reason. |
 
-Two config options cover files no import reaches:
+Three config options cover what imports cannot show:
 
 ```ts
 // tests/bootstrap.ts (or wherever the runner config lives)
@@ -71,12 +73,23 @@ export const selection: Config['selection'] = {
   resolvers: [async (testFile) => controllersRequestedBy(testFile)],
   // Off by default. Guess tests by file name (lease.ts -> lease.spec.ts) and by these prefixes.
   heuristic: [{ from: 'app/modules/*/', to: 'tests/modules/*/' }],
+  // Files whose effect is being loaded: a change runs everything, even when a test imports them.
+  global: ['config/', 'start/', 'providers/'],
 }
 ```
 
 Resolver results are imported while the map is written, so their own imports are recorded
-even when the run never loads them. A heuristic selection can miss a dependant; run the
-full suite before relying on one.
+even when the run never loads them. A resolver that throws marks the map incomplete, so
+`--changed` runs everything until it passes. A heuristic selection can miss a dependant;
+run the full suite before relying on one.
+
+`heuristic` and `global` are read from the current config on every serial run. A parallel
+coordinator has no config and selects with the policy saved in the map; a worker whose
+config differs runs its whole shard and says to rerun `--prepare-caches`.
+
+A file that only a package imports after boot (a router loading a controller, an event
+emitter loading a listener) is a bridge: the walk stops at packages, so no test is known
+to reach it. Changing a bridge runs everything unless a resolver names it.
 
 In a large AdonisJS app (2,400 source files, 1,110 test files) a typical changed file
 selected all 1,079 test files with the version 1 map. It now selects 9, and 1,262 files
@@ -176,6 +189,9 @@ Japa warns on stderr, so agent JSON on stdout stays parseable.
 | `--changed is running the full suite: no dependency map yet` | Run once with `--prepare-caches`. |
 | `... the dependency map is incomplete` | Call `recordImportsFromStart()` at the top of the entrypoint, then `--prepare-caches`. |
 | `... N changed path(s) are loaded at boot` | Expected for config, providers and route files. |
+| `... N changed path(s) match selection.global` | Expected; those files affect any test. |
+| `... N changed path(s) are loaded by a package after boot` | Add a resolver that names the tests reaching them. |
+| `A selection resolver threw for N test file(s)` | Fix the resolver; until then the map is incomplete. |
 | `... N changed path(s) no test file imports` | Add a `selection.resolvers` entry for lazily loaded files (controllers, jobs) or turn on `selection.heuristic`. |
 | `--changed guessed tests by name` | The heuristic picked the tests; run the full suite before relying on it. |
 | `[japa-parallel] waiting for the run in process N to finish` | Another pool holds this project's workers. |
@@ -194,7 +210,11 @@ The agent summary carries the same reason as `selection.fallbackReason`.
 - A file with runtime-built titles (datasets) is never skipped by a title filter.
 - `--changed` falls back to the full suite for any unknown path, unless the heuristic is
   on and names tests for it, and the summary then says so.
-- A version 1 dependency map is discarded, not trusted.
+- Dependency maps older than version 3 are discarded, not trusted.
+- Only a complete run decides whether the map is complete, so a later complete run with
+  unrecorded imports revokes it.
+- An uncaught error or unhandled rejection fails the run even before Japa watches for them
+  (global setup), and one after a worker wrote its report withdraws it.
 - A partial selection never rewrites a baseline.
 - Cache failures never fail a test run.
 
@@ -206,5 +226,7 @@ The agent summary carries the same reason as `selection.fallbackReason`.
   preloads first) must call `recordImportsFromStart()` at the top of its test
   entrypoint. Otherwise those modules' imports are never seen and the map stays
   incomplete, so `--changed` always runs the full suite.
+- `--prepare-caches` imports test files without running them, so an `await import()`
+  inside a test body is recorded only by a full run.
 - Application boot remains the floor for targeted runs.
 - Caches are per application directory and are safe to delete.

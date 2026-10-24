@@ -20,15 +20,15 @@ import { withCacheLock } from './cache_lock.js'
 import { setSelectionPlan } from './planning_state.js'
 import { warn } from './helpers.js'
 import { FilesManager } from './files_manager.js'
-import type { HeuristicRule, NormalizedConfig, PluginFn } from './types.js'
+import type { HeuristicRule, NormalizedConfig, PluginFn, SelectionOptions } from './types.js'
 
 /**
  * Files each test file depends on, captured while it imports. Built by
  * `recordDependencies`, consumed by `changedSelection`.
  */
 export type DependencyMap = {
-  version: 2
-  /** True only when every configured suite file was imported by this map. */
+  version: 3
+  /** True only when the last complete recording run saw every import it expected. */
   complete?: boolean
   /** Test file (relative) -> project files its own imports and resolvers reach (relative). */
   files: Record<string, string[]>
@@ -38,8 +38,38 @@ export type DependencyMap = {
    * reaches can affect any test.
    */
   boot: string[]
+  /**
+   * Project files a package imported after boot (a router loading a controller, an
+   * event emitter loading a listener) that no resolver claims. The walk stops at
+   * packages, so no test is known to reach them and a change to one runs everything.
+   */
+  bridged: string[]
   /** Present when `selection.heuristic` is on; the rules it configured. */
   heuristic?: HeuristicRule[]
+  /** `selection.global` when the map was written. */
+  global?: string[]
+}
+
+/** The selection config `selectChanged` applies; the current config wins over the map's. */
+export type SelectionPolicy = { heuristic?: HeuristicRule[]; global?: string[] }
+
+export function selectionPolicy(options: SelectionOptions | undefined): SelectionPolicy {
+  const heuristic = options?.heuristic
+  return {
+    ...(heuristic ? { heuristic: heuristic === true ? [] : heuristic } : {}),
+    ...(options?.global?.length ? { global: options.global } : {}),
+  }
+}
+
+export function mapPolicy(map: DependencyMap): SelectionPolicy {
+  return {
+    ...(map.heuristic ? { heuristic: map.heuristic } : {}),
+    ...(map.global?.length ? { global: map.global } : {}),
+  }
+}
+
+export function samePolicy(a: SelectionPolicy, b: SelectionPolicy) {
+  return JSON.stringify([a.heuristic, a.global]) === JSON.stringify([b.heuristic, b.global])
 }
 
 /** What `--changed` decided to run. */
@@ -53,10 +83,11 @@ export type ChangedSelection =
 // must never hide a real import, or the graph would be marked complete too early.
 const COMMENTS = /^\s*\/\*[\s\S]*?\*\/|^\s*\/\/.*$/gm
 const TYPE_ONLY = /\b(?:import|export)\s+type\b[^;]*?\bfrom\s*['"][^'"]+['"]/g
-const RELATIVE_IMPORT = /(?:\bfrom\s+|\bimport\s*\(|\brequire\s*\(|\bimport\s+)['"]\.{1,2}\//
+// Relative specifiers and `#` subpath imports, the two ways a file reaches project code.
+const RELATIVE_IMPORT = /(?:\bfrom\s+|\bimport\s*\(|\brequire\s*\(|\bimport\s+)['"](?:\.{1,2}\/|#)/
 
 /**
- * Relative imports that should have produced a resolve edge. Type-only imports
+ * Project imports (relative or `#` aliases) that should have produced a resolve edge. Type-only imports
  * and specifiers inside comments are erased before Node resolves anything, so
  * counting them would mark a fully recorded graph incomplete.
  */
@@ -136,7 +167,8 @@ function guessTests(path: string, testFiles: string[], rules: HeuristicRule[]) {
 export function selectChanged(
   map: DependencyMap,
   changed: string[],
-  testFiles: string[] = []
+  testFiles: string[] = [],
+  policy: SelectionPolicy = mapPolicy(map)
 ): ChangedSelection {
   if (!Object.keys(map.files).length) {
     return {
@@ -149,6 +181,26 @@ export function selectChanged(
   }
   const wanted = [...new Set(changed.map((path) => path.split('\\').join('/')))]
   if (!wanted.length) return { kind: 'full', reason: 'no changed paths were found.' }
+
+  const globalRules = (policy.global ?? []).map(rulePattern)
+  const global = wanted.filter((path) => globalRules.some((rule) => rule.test(path)))
+  if (global.length) {
+    return {
+      kind: 'full',
+      reason: `${global.length} changed path(s) match selection.global (${sampleOf(global)}).`,
+    }
+  }
+  const bridged = new Set(map.bridged)
+  const viaPackage = wanted.filter((path) => bridged.has(path))
+  if (viaPackage.length) {
+    return {
+      kind: 'full',
+      reason:
+        `${viaPackage.length} changed path(s) are loaded by a package after boot ` +
+        `(${sampleOf(viaPackage)}), so no test is known to reach them. A selection ` +
+        'resolver can name the tests that do.',
+    }
+  }
 
   const reachedBy = new Map<string, string[]>()
   for (const [testFile, dependencies] of Object.entries(map.files)) {
@@ -181,9 +233,10 @@ export function selectChanged(
     }
   }
 
-  const unplaced = map.heuristic
+  const rules = policy.heuristic
+  const unplaced = rules
     ? unreached.filter((path) => {
-        const guesses = guessTests(path, Object.keys(map.files), map.heuristic!)
+        const guesses = guessTests(path, Object.keys(map.files), rules)
         guesses.forEach((file) => selected.add(file))
         return !guesses.length
       })
@@ -285,10 +338,11 @@ export async function gitChangedPaths(cwd: string, ignored: string[] = []): Prom
 }
 
 const emptyMap = (): DependencyMap => ({
-  version: 2,
+  version: 3,
   complete: false,
   files: Object.create(null),
   boot: [],
+  bridged: [],
 })
 
 const isStrings = (value: unknown): value is string[] =>
@@ -303,13 +357,22 @@ const isRules = (value: unknown): value is HeuristicRule[] =>
       typeof (rule as HeuristicRule).to === 'string'
   )
 
-/** Version 1 maps walked through packages and selected every test; they are discarded. */
+/**
+ * Older maps are discarded: version 1 walked through packages and selected every test,
+ * version 2 did not record files reached only through a package.
+ */
 export function parseDependencyMap(value: unknown): DependencyMap {
-  if (!value || typeof value !== 'object' || (value as DependencyMap).version !== 2) {
+  if (!value || typeof value !== 'object' || (value as DependencyMap).version !== 3) {
     return emptyMap()
   }
-  const { files, boot, heuristic, complete } = value as DependencyMap
-  if (!files || typeof files !== 'object' || Array.isArray(files) || !isStrings(boot)) {
+  const { files, boot, bridged, heuristic, global, complete } = value as DependencyMap
+  if (
+    !files ||
+    typeof files !== 'object' ||
+    Array.isArray(files) ||
+    !isStrings(boot) ||
+    !isStrings(bridged)
+  ) {
     return emptyMap()
   }
   const parsed: Record<string, string[]> = Object.create(null)
@@ -318,11 +381,13 @@ export function parseDependencyMap(value: unknown): DependencyMap {
     parsed[key] = dependencies
   }
   return {
-    version: 2,
+    version: 3,
     complete: complete === true,
     files: parsed,
     boot,
+    bridged,
     ...(isRules(heuristic) ? { heuristic } : {}),
+    ...(isStrings(global) ? { global } : {}),
   }
 }
 
@@ -399,7 +464,7 @@ export function recordDependencies(options: { file?: string; dir?: string } = {}
     let graphComplete = true
     let boot: Set<string> | undefined
     const resolvers = config.selection?.resolvers ?? []
-    const heuristic = config.selection?.heuristic
+    const policy = selectionPolicy(config.selection)
     const toPath = (url: string) => relative(cwd, fileURLToPath(url)).split('\\').join('/')
     const inProject = (path: string) => !path.startsWith('..') && !path.includes('node_modules')
 
@@ -424,15 +489,20 @@ export function recordDependencies(options: { file?: string; dir?: string } = {}
      * records those edges; a file that fails to import still counts as a dependency.
      */
     const unloadable = new Set<string>()
+    const claimed = new Set<string>()
+    const resolverFailures: string[] = []
     const resolveExtra = async (testFile: string) => {
       const urls: string[] = []
       for (const resolver of resolvers) {
         try {
           for (const path of await resolver(testFile)) urls.push(toFileUrl(cwd, path))
         } catch (error) {
+          // The test's record would miss what the resolver names, so the map cannot be trusted.
           debug('selection resolver failed for %s: %O', testFile, error)
+          resolverFailures.push(`${testFile}: ${error instanceof Error ? error.message : error}`)
         }
       }
+      urls.forEach((url) => claimed.add(url))
       for (const url of urls) {
         if (!edges.has(url)) await import(url).catch(() => unloadable.add(toPath(url)))
       }
@@ -455,6 +525,15 @@ export function recordDependencies(options: { file?: string; dir?: string } = {}
       const bootFiles = [...(boot ?? [])]
         .map(toPath)
         .filter((path) => inProject(path) && !testFileSet.has(path))
+      const bridgedFiles = new Set<string>()
+      for (const [parent, children] of edges) {
+        if (!isPackageUrl(parent)) continue
+        for (const child of children) {
+          if (isPackageUrl(child) || boot?.has(child) || claimed.has(child)) continue
+          const path = toPath(child)
+          if (inProject(path) && !testFileSet.has(path)) bridgedFiles.add(path)
+        }
+      }
 
       const unrecorded = new Set<string>()
       if (completeRun && !importFailed) {
@@ -477,6 +556,13 @@ export function recordDependencies(options: { file?: string; dir?: string } = {}
           }
         }
       }
+      if (resolverFailures.length) {
+        graphComplete = false
+        warn(
+          `A selection resolver threw for ${resolverFailures.length} test file(s) ` +
+            `(${sampleOf(resolverFailures)}). --changed will run the full suite until it passes.`
+        )
+      }
       if (unrecorded.size) {
         graphComplete = false
         if (cliArgs?.prepareCaches) {
@@ -498,15 +584,22 @@ export function recordDependencies(options: { file?: string; dir?: string } = {}
             const merged = new Set([...(latest.files[testFile] ?? []), ...dependencies])
             latest.files[testFile] = [...merged].sort()
           }
-          latest.complete =
-            latest.complete === true || (completeRun && !importFailed && graphComplete)
+          // Only a complete run can decide completeness, in either direction.
+          if (completeRun && !importFailed) latest.complete = graphComplete
+          else if (resolverFailures.length) latest.complete = false
           // A complete run saw the whole boot; a slice can only add to it.
           latest.boot =
             completeRun && !importFailed
               ? bootFiles.sort()
               : [...new Set([...latest.boot, ...bootFiles])].sort()
-          if (heuristic) latest.heuristic = heuristic === true ? [] : heuristic
+          // Import-only runs see fewer bridges than full ones, so bridges only accumulate.
+          latest.bridged = [...new Set([...latest.bridged, ...bridgedFiles])]
+            .filter((path) => !claimed.has(toFileUrl(cwd, path)))
+            .sort()
+          if (policy.heuristic) latest.heuristic = policy.heuristic
           else delete latest.heuristic
+          if (policy.global) latest.global = policy.global
+          else delete latest.global
           const temporary = `${target}.${process.pid}.tmp`
           await mkdir(resolve(target, '..'), { recursive: true })
           await writeFile(temporary, `${JSON.stringify(latest)}\n`)
@@ -566,7 +659,12 @@ export function changedSelection(options: { file?: string; dir?: string } = {}):
             .split(',')
             .map((path) => path.trim())
             .filter(Boolean)
-    let outcome = selectChanged(map, changed, await configuredTestFiles(config, cwd))
+    let outcome = selectChanged(
+      map,
+      changed,
+      await configuredTestFiles(config, cwd),
+      selectionPolicy(config.selection)
+    )
     if (outcome.kind === 'full' && hookUnavailable && !processEdges) {
       outcome = {
         kind: 'full',

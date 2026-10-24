@@ -14,10 +14,12 @@ import { dirname, join, resolve } from 'node:path'
 import { availableParallelism } from 'node:os'
 import {
   gitChangedPaths,
+  mapPolicy,
   readDependencyMap,
   selectChanged,
   selectionDetail,
   type ChangedSelection,
+  type SelectionPolicy,
 } from './dependencies.js'
 import { warn } from './helpers.js'
 import { cacheDir, dependencyFile } from './cache_paths.js'
@@ -67,7 +69,10 @@ function optionValue(args: string[], name: string) {
   return undefined
 }
 
-/** Freeze one changed-file selection for every worker. */
+/**
+ * Freeze one changed-file selection for every worker. The coordinator has no app
+ * config, so it applies the policy the map was written with; workers check it.
+ */
 async function changedFiles(cwd: string, args: string[], options: { quiet?: boolean } = {}) {
   const changed = optionValue(args, '--changed')
   if (!changed) return undefined
@@ -80,7 +85,7 @@ async function changedFiles(cwd: string, args: string[], options: { quiet?: bool
           .filter(Boolean)
   const map = await readDependencyMap(dependencyFile(cwd, optionValue(args, '--cache-dir')))
   const outcome = selectChanged(map, paths)
-  if (options.quiet) return outcome
+  if (options.quiet) return { outcome, map }
   if (outcome.kind === 'full') {
     warn(`[japa-parallel] --changed is running the full suite: ${outcome.reason}`)
   } else if (outcome.kind === 'heuristic') {
@@ -89,15 +94,44 @@ async function changedFiles(cwd: string, args: string[], options: { quiet?: bool
         'no test imports. Run the full suite before relying on it.'
     )
   }
-  return outcome
+  return { outcome, map }
+}
+
+/** What every worker narrows to; `index.ts` reads it from `JAPA_SPEED_SELECTION`. */
+export type WorkerSelection = {
+  only: string[]
+  /** Test files the map recorded; any other file is kept. */
+  onlyWithin: string[]
+  /** The policy the selection was made with; a worker whose config differs runs its whole shard. */
+  policy: SelectionPolicy
+}
+
+const isStringList = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === 'string')
+
+export function isWorkerSelection(value: unknown): value is WorkerSelection {
+  if (!value || typeof value !== 'object') return false
+  const { only, onlyWithin, policy } = value as Partial<WorkerSelection>
+  return (
+    isStringList(only) && isStringList(onlyWithin) && Boolean(policy) && typeof policy === 'object'
+  )
 }
 
 /** Test time an extra worker must take over to pay for booting the app once more. */
 const WORKER_BREAK_EVEN_MS = 10_000
 
-/** Recorded test time of the files a run will plan, or all of them when `only` is unset. */
-export function estimateDurationMs(durations: Record<string, number>, only?: readonly string[]) {
-  const entries = Object.entries(durations)
+/**
+ * Recorded test time of the files a run will plan, or all of them when `only` is unset,
+ * within the named suites when there are any.
+ */
+export function estimateDurationMs(
+  durations: Record<string, number>,
+  only?: readonly string[],
+  suites?: readonly string[]
+) {
+  const entries = Object.entries(durations).filter(
+    ([key]) => !suites?.length || suites.includes(key.slice(0, key.indexOf(':')))
+  )
   if (!entries.length) return undefined
   if (!only) return entries.reduce((total, [, ms]) => total + ms, 0)
   const byFile = new Map<string, number>()
@@ -133,7 +167,12 @@ function sumField(records: Record<string, unknown>[], key: string) {
   )
 }
 
-async function mergeAgentReports(files: string[], target: string, outcome?: ChangedSelection) {
+export async function mergeAgentReports(
+  files: string[],
+  target: string,
+  outcome: ChangedSelection | undefined,
+  workers: { exitCode: number; error?: string }[]
+) {
   const lines: string[] = []
   const summaries: Record<string, unknown>[] = []
   for (const file of files) {
@@ -184,7 +223,18 @@ async function mergeAgentReports(files: string[], target: string, outcome?: Chan
         ])
       ),
       durationMs: sumField(summaries, 'durationMs'),
-      ok: summaries.every((item) => item.ok === true),
+      // A worker that wrote no summary, or failed outside its tests, is not ok.
+      ok:
+        summaries.length === workers.length &&
+        workers.every((worker) => !worker.error) &&
+        summaries.every((item) => item.ok === true),
+      ...(summaries.length < workers.length
+        ? { missingSummaries: workers.length - summaries.length }
+        : {}),
+      ...(summaries.some((item) => item.processError === true) ||
+      workers.some((worker) => worker.error)
+        ? { processError: true }
+        : {}),
       ...(selections.length
         ? {
             selection: {
@@ -228,7 +278,12 @@ async function mergeAgentReports(files: string[], target: string, outcome?: Chan
             },
           }
         : {}),
-      ...(summaries.every((item) => item.knownOnly === true) ? { knownOnly: true } : {}),
+      // Known-only when some shard failed and every failing shard failed on known tests only.
+      ...(summaries.length === workers.length &&
+      summaries.some((item) => item.ok !== true) &&
+      summaries.every((item) => item.ok === true || item.knownOnly === true)
+        ? { knownOnly: true }
+        : {}),
       ...(summaries.some((item) => item.nonTestErrors === true) ? { nonTestErrors: true } : {}),
       ...(errorGroups.size
         ? {
@@ -275,9 +330,13 @@ function pricedEstimate(
 ) {
   const filtered = args.some((arg) => /^--(tests|groups|tags|files|failed)/.test(arg))
   if (outcome === undefined && filtered) return undefined
+  // Positional arguments that name a recorded suite (`unit functional`) narrow the run.
+  const recorded = new Set(Object.keys(durations).map((key) => key.slice(0, key.indexOf(':'))))
+  const suites = args.filter((arg) => !arg.startsWith('-') && recorded.has(arg))
   return estimateDurationMs(
     durations,
-    outcome && outcome.kind !== 'full' ? outcome.files : undefined
+    outcome && outcome.kind !== 'full' ? outcome.files : undefined,
+    suites
   )
 }
 
@@ -292,8 +351,11 @@ export async function plannedWorkerCount(options: {
 }) {
   const cwd = await realpath(options.cwd ?? process.cwd())
   const history = await readHistory(historyFile(cwd, options.historyFile), cwd)
-  const outcome = await changedFiles(cwd, options.args, { quiet: true })
-  return autoWorkerCount(options.args, pricedEstimate(options.args, outcome, history.durations))
+  const changed = await changedFiles(cwd, options.args, { quiet: true })
+  return autoWorkerCount(
+    options.args,
+    pricedEstimate(options.args, changed?.outcome, history.durations)
+  )
 }
 
 /**
@@ -307,11 +369,24 @@ export async function plannedWorkerCount(options: {
 export async function runParallel(options: ParallelOptions): Promise<ParallelResult> {
   if (process.env.JAPA_PARALLEL_LOCK === '0') return runPool(options)
   const cwd = await realpath(options.cwd ?? process.cwd())
-  return withRunLock(
-    join(cacheDir(cwd), 'parallel.lock'),
-    () => runPool(options),
-    (owner) => warn(`[japa-parallel] waiting for the run in process ${owner} to finish`)
-  )
+  try {
+    return await withRunLock(
+      join(cacheDir(cwd), 'parallel.lock'),
+      () => runPool(options),
+      (owner) => warn(`[japa-parallel] waiting for the run in process ${owner} to finish`),
+      options.signal
+    )
+  } catch (error) {
+    // Cancelled while another run held the lock: nothing ran.
+    if (!options.signal?.aborted || options.signal.reason !== error) throw error
+    return {
+      exitCode: 130,
+      historyUpdated: false,
+      baselineUpdated: false,
+      ...(options.updateBaseline ? { baselineSkipped: 'the run was cancelled' } : {}),
+      workers: [],
+    }
+  }
 }
 
 async function runPool(options: ParallelOptions): Promise<ParallelResult> {
@@ -324,8 +399,16 @@ async function runPool(options: ParallelOptions): Promise<ParallelResult> {
   const history = await readHistory(file, cwd)
   const failed = await getFailedTests(cwd).catch(() => ({}) as { tests?: string[] })
   const args = options.args ?? []
-  const outcome = await changedFiles(cwd, args)
-  const only = outcome && outcome.kind !== 'full' ? outcome.files : undefined
+  const changed = await changedFiles(cwd, args)
+  const outcome = changed?.outcome
+  const selection: WorkerSelection | undefined =
+    changed && outcome && outcome.kind !== 'full'
+      ? {
+          only: outcome.files,
+          onlyWithin: Object.keys(changed.map.files),
+          policy: mapPolicy(changed.map),
+        }
+      : undefined
   const count =
     options.workers === 'auto'
       ? autoWorkerCount(args, pricedEstimate(args, outcome, history.durations))
@@ -377,6 +460,8 @@ async function runPool(options: ParallelOptions): Promise<ParallelResult> {
 
   try {
     await writeHistory(snapshot, { ...history, runId, failedTests: failed.tests ?? [] })
+    const selectionFile = join(directory, 'selection.json')
+    if (selection) await writeFile(selectionFile, JSON.stringify(selection))
     options.signal?.addEventListener('abort', abort, { once: true })
     if (options.signal?.aborted) abort()
     const workers = await Promise.all(
@@ -418,8 +503,7 @@ async function runPool(options: ParallelOptions): Promise<ParallelResult> {
                     JAPA_SPEED_RUN_ID: runId,
                     JAPA_SPEED_SNAPSHOT: snapshot,
                     JAPA_SPEED_OUTPUT: join(directory, `${worker}.json`),
-                    ...(only ? { JAPA_SPEED_ONLY: JSON.stringify(only) } : {}),
-                    ...(options.updateBaseline ? { JAPA_SPEED_COLLECT_FAILURES: '1' } : {}),
+                    ...(selection ? { JAPA_SPEED_SELECTION: selectionFile } : {}),
                   },
                 }
               )
@@ -437,11 +521,13 @@ async function runPool(options: ParallelOptions): Promise<ParallelResult> {
       )
     )
     if (escalation) await escalation
-    if (agentReport) {
+    const mergeReports = async () => {
+      if (!agentReport) return
       await mergeAgentReports(
         Array.from({ length: count }, (_, index) => join(directory, `agent-${index + 1}.jsonl`)),
         resolve(cwd, agentReport),
-        outcome
+        outcome,
+        workers
       ).catch((error) => debug('unable to merge agent reports: %O', error))
     }
     let exitCode = aborted ? 130 : (workers.find((worker) => worker.exitCode !== 0)?.exitCode ?? 0)
@@ -476,6 +562,11 @@ async function runPool(options: ParallelOptions): Promise<ParallelResult> {
           )
             throw new Error('Invalid coordinated worker result')
           if (!result.failedTests) throw new Error('Missing failed-test worker report')
+          if ('processError' in raw && raw.processError === true) {
+            worker.error = 'an uncaught error or unhandled rejection reached the worker'
+            worker.exitCode = worker.exitCode || 1
+            exitCode = exitCode || 1
+          }
           for (const title of result.failedTests) failures.add(title)
           if (result.failures) baselineFailures.push(...result.failures)
           complete &&= raw.complete
@@ -501,8 +592,13 @@ async function runPool(options: ParallelOptions): Promise<ParallelResult> {
           exitCode = 1
         }
       }
+      await mergeReports()
       if (validReports && !aborted) {
-        await cacheFailedTests([...failures], cwd).catch((error) =>
+        const identities = baselineFailures.map((failure) => ({
+          file: failure.file,
+          title: failure.title,
+        }))
+        await cacheFailedTests([...failures], cwd, identities).catch((error) =>
           debug('unable to update failed-test cache: %O', error)
         )
       }
@@ -558,6 +654,7 @@ async function runPool(options: ParallelOptions): Promise<ParallelResult> {
       }
     }
     if (aborted && options.updateBaseline) baselineSkipped = 'the run was cancelled'
+    if (aborted) await mergeReports()
     if (escalation) await escalation
     return {
       exitCode: aborted ? 130 : exitCode,

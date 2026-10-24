@@ -191,7 +191,11 @@ export class Planner {
     setSelectionStats(this.#config, {
       collected: this.#collected,
       planned: plannedFiles.length,
-      signature: createHash('sha256').update(plannedFiles.join('\n')).digest('hex').slice(0, 16),
+      // Same files under a different title, group or tag filter are a different selection.
+      signature: createHash('sha256')
+        .update(JSON.stringify([plannedFiles, ...this.#getRefinerFilters()]))
+        .digest('hex')
+        .slice(0, 16),
     })
     return suites
   }

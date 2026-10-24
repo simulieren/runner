@@ -24,7 +24,7 @@ import { createTest, createTestGroup } from './src/create_test.js'
 import type { CLIArgs, Config, NormalizedConfig } from './src/types.js'
 export type { Baseline, BaselineEntry } from './src/failure_baseline.js'
 export { recordImportsFromStart } from './src/dependencies.js'
-import { changedOutcome, selectionDetail } from './src/dependencies.js'
+import { changedOutcome, samePolicy, selectionDetail, selectionPolicy } from './src/dependencies.js'
 export type { AgentDelta, AgentTestRow, AgentSummary } from './src/agent_delta.js'
 import {
   Emitter,
@@ -274,14 +274,28 @@ export async function run() {
      * imported, and record what each file contains for the next filtered run.
      * Best-effort: an absent or stale index keeps every file.
      */
-    if (process.env.JAPA_SPEED_ONLY) {
+    if (process.env.JAPA_SPEED_SELECTION) {
       try {
-        const only: unknown = JSON.parse(process.env.JAPA_SPEED_ONLY)
-        if (Array.isArray(only) && only.every((path) => typeof path === 'string')) {
+        const { readFile } = await import('node:fs/promises')
+        const { isWorkerSelection } = await import('./src/parallel.js')
+        const selection: unknown = JSON.parse(
+          await readFile(process.env.JAPA_SPEED_SELECTION, 'utf8')
+        )
+        if (!isWorkerSelection(selection)) throw new Error('malformed selection')
+        if (samePolicy(selection.policy, selectionPolicy(runnerConfig!.selection))) {
           const { setSelectionPlan } = await import('./src/planning_state.js')
-          setSelectionPlan(runnerConfig!, { only: Object.freeze(only) })
+          setSelectionPlan(runnerConfig!, {
+            only: Object.freeze(selection.only),
+            onlyWithin: Object.freeze(selection.onlyWithin),
+          })
+        } else {
+          warn(
+            '--changed is running every file of this shard: selection.heuristic or ' +
+              'selection.global changed since the caches were prepared. Rerun --prepare-caches.'
+          )
         }
       } catch (error) {
+        // Running too much is safe; a selection that cannot be read narrows nothing.
         debug('ignoring invalid coordinator selection: %O', error)
       }
     }

@@ -8,6 +8,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
+import { writeFileSync } from 'node:fs'
 import { mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import debug from './debug.js'
@@ -38,15 +39,17 @@ export type History = {
   fullRun?: boolean
   /** The suites a full-run worker covered. */
   suites?: string[]
-  /** Only written by managed workers when the coordinator collects a baseline. */
+  /** Failed tests a managed worker saw, for the baseline and the retry cache. */
   failures?: BaselineEntry[]
 }
 export type WorkerHistory = History & {
   worker: number
   total: number
   complete: boolean
-  /** Present when the coordinator asked for baseline collection. */
+  /** Failed tests this worker saw. */
   failures?: BaselineEntry[]
+  /** An uncaught error or unhandled rejection reached the worker process. */
+  processError?: boolean
 }
 
 export function historyFile(cwd: string, file?: string) {
@@ -200,17 +203,37 @@ export function durationHistory(options: { file?: string } = {}): PluginFn {
     const durations: DurationMap = Object.create(null)
     const failedFiles = new Set<string>()
     const failures: BaselineEntry[] = []
-    const collectFailures = process.env.JAPA_SPEED_COLLECT_FAILURES === '1'
     let suite = 'default'
     let pinned = false
     // A failed suite/group hook can skip tests, leaving file costs incomplete.
     let hookFailed = false
     let processError = false
-    const markProcessError = () => {
+    /** The worker report as written, so an error after it can still withdraw it. */
+    let report: WorkerHistory | undefined
+    const markProcessError = (
+      event: 'uncaughtException' | 'unhandledRejection',
+      error: unknown
+    ) => {
       processError = true
+      if (report && output) {
+        report = { ...report, complete: false, fullRun: false, processError: true, durations: {} }
+        try {
+          writeFileSync(output, JSON.stringify(report))
+        } catch (writeError) {
+          debug('unable to withdraw worker timings: %O', writeError)
+        }
+      }
+      // Japa's exceptions manager reports the error once it is watching. Before that
+      // (global setup, imports) this listener is alone, and listening at all stops Node
+      // from exiting, so do what Node would have done.
+      if (process.listenerCount(event) > 1) return
+      console.error(error)
+      process.exit(1)
     }
-    process.on('uncaughtException', markProcessError)
-    process.on('unhandledRejection', markProcessError)
+    const onException = (error: unknown) => markProcessError('uncaughtException', error)
+    const onRejection = (error: unknown) => markProcessError('unhandledRejection', error)
+    process.on('uncaughtException', onException)
+    process.on('unhandledRejection', onRejection)
     const offSuite = emitter.on('suite:start', (payload) => {
       suite = payload.name
     })
@@ -229,14 +252,12 @@ export function durationHistory(options: { file?: string } = {}): PluginFn {
       durations[key] = (durations[key] ?? 0) + payload.duration
       if (payload.hasError) {
         failedFiles.add(key)
-        if (collectFailures) {
-          failures.push({
-            suite,
-            group: payload.meta.group?.title,
-            file: path,
-            title: payload.title.expanded,
-          })
-        }
+        failures.push({
+          suite,
+          group: payload.meta.group?.title,
+          file: path,
+          title: payload.title.expanded,
+        })
       }
     })
     const offEnd = emitter.on('runner:end', async () => {
@@ -248,8 +269,6 @@ export function durationHistory(options: { file?: string } = {}): PluginFn {
       offGroupEnd()
       offTest()
       offEnd()
-      process.removeListener('uncaughtException', markProcessError)
-      process.removeListener('unhandledRejection', markProcessError)
       const partial =
         pinned ||
         (['tests', 'groups', 'tags'] as const).some((filter) => config.filters[filter]?.length)
@@ -266,7 +285,7 @@ export function durationHistory(options: { file?: string } = {}): PluginFn {
       for (const key of failedFiles) delete durations[key]
       if (managed) {
         try {
-          await writeHistory(output!, {
+          report = {
             version: 1,
             cwd,
             runId,
@@ -274,11 +293,15 @@ export function durationHistory(options: { file?: string } = {}): PluginFn {
             total: Number(process.env.JAPA_WORKER_COUNT),
             complete,
             fullRun,
+            ...(processError ? { processError } : {}),
             suites: plannedSuites(config),
             failedTests: runner.getSummary().failedTestsTitles,
-            ...(collectFailures ? { failures } : {}),
+            failures,
             durations: complete ? durations : {},
-          })
+          }
+          await writeHistory(output!, report)
+          // An error during the write was withdrawn into a file the rename then replaced.
+          if (report.processError) writeFileSync(output!, JSON.stringify(report))
         } catch (error) {
           // A result that cannot be written is a lost timing sample, not a test
           // failure. Leave a minimal report so the coordinator keeps the test

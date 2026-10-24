@@ -17,7 +17,22 @@ export function failedTestsFile(cwd = process.cwd()) {
   return directory ? join(directory, 'summary.json') : undefined
 }
 
-export async function getFailedTests(cwd = process.cwd()): Promise<{ tests?: string[] }> {
+/** Where a failed title came from, so two tests sharing a title stay apart. */
+export type FailedTest = { file: string; title: string }
+
+const isFailedTests = (value: unknown): value is FailedTest[] =>
+  Array.isArray(value) &&
+  value.every(
+    (item) =>
+      item &&
+      typeof item === 'object' &&
+      typeof (item as FailedTest).file === 'string' &&
+      typeof (item as FailedTest).title === 'string'
+  )
+
+export async function getFailedTests(
+  cwd = process.cwd()
+): Promise<{ tests?: string[]; failures?: FailedTest[] }> {
   const file = failedTestsFile(cwd)
   if (!file) return {}
   try {
@@ -27,20 +42,32 @@ export async function getFailedTests(cwd = process.cwd()): Promise<{ tests?: str
     if (!Array.isArray(value.tests) || !value.tests.every((title) => typeof title === 'string')) {
       throw new Error('Invalid failed tests cache')
     }
-    return { tests: value.tests }
+    const failures =
+      'failures' in value && isFailedTests(value.failures) ? value.failures : undefined
+    return { tests: value.tests, ...(failures ? { failures } : {}) }
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return {}
     throw new Error('Unable to read failed tests cache file', { cause: error })
   }
 }
 
-export async function cacheFailedTests(tests: string[], cwd = process.cwd()) {
+export async function cacheFailedTests(
+  tests: string[],
+  cwd = process.cwd(),
+  failures?: FailedTest[]
+) {
   const file = failedTestsFile(cwd)
   if (!file) return
   await mkdir(dirname(file), { recursive: true })
   const temporary = `${file}.${randomUUID()}.tmp`
   try {
-    await writeFile(temporary, JSON.stringify({ tests }), { flag: 'wx' })
+    await writeFile(
+      temporary,
+      JSON.stringify({ tests, ...(failures?.length ? { failures } : {}) }),
+      {
+        flag: 'wx',
+      }
+    )
     await rename(temporary, file)
   } finally {
     await rm(temporary, { force: true }).catch(() => {})

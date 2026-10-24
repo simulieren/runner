@@ -70,6 +70,12 @@ configure({
     async () => {
       await writeFile(resolve('setup-ran.json'), '1')
     },
+    async () => {
+      if (process.env.TEST_SETUP_UNHANDLED === '1') {
+        Promise.reject(new Error('Expected setup rejection'))
+        await new Promise((done) => setTimeout(done, 20))
+      }
+    },
   ],
   teardown: [
     async () => {

@@ -71,11 +71,13 @@ function isAlive(pid: number) {
 export async function withRunLock<T>(
   lock: string,
   callback: () => Promise<T>,
-  onWait: (owner: number) => void
+  onWait: (owner: number) => void,
+  signal?: AbortSignal
 ): Promise<T> {
   await mkdir(dirname(lock), { recursive: true })
   let announced = false
   while (true) {
+    signal?.throwIfAborted()
     try {
       const handle = await open(lock, 'wx')
       await handle.writeFile(String(process.pid))
@@ -88,9 +90,12 @@ export async function withRunLock<T>(
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
       const owner = Number(await readFile(lock, 'utf8').catch(() => ''))
-      // An empty file is a lock being written right now; only a dead owner is stale.
-      if (Number.isInteger(owner) && owner > 0 && !isAlive(owner)) {
-        debug('removing run lock %s left by exited process %d', lock, owner)
+      // An empty file is a lock being written right now, unless it has stayed empty:
+      // the owner died between creating the file and writing its pid.
+      const written = Number.isInteger(owner) && owner > 0
+      const abandoned = !written && (await isOlderThan(lock, OWNERLESS_MS))
+      if ((written && !isAlive(owner)) || abandoned) {
+        debug('removing run lock %s left by exited process %s', lock, written ? owner : '?')
         await rm(lock, { force: true }).catch(() => {})
         continue
       }
@@ -98,7 +103,29 @@ export async function withRunLock<T>(
         announced = true
         onWait(owner)
       }
-      await new Promise((done) => setTimeout(done, 250))
+      await abortableDelay(250, signal)
     }
   }
+}
+
+/** A lock file with no pid after this long was left by a process that died writing it. */
+const OWNERLESS_MS = 5_000
+
+async function isOlderThan(file: string, ms: number) {
+  const info = await stat(file).catch(() => null)
+  return info !== null && Date.now() - info.mtimeMs > ms
+}
+
+function abortableDelay(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((done, fail) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      done()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      fail(signal!.reason)
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
