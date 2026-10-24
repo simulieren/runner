@@ -74,9 +74,13 @@ export function samePolicy(a: SelectionPolicy, b: SelectionPolicy) {
 
 /** What `--changed` decided to run. */
 export type ChangedSelection =
-  | { kind: 'exact'; files: string[] }
+  /**
+   * `pending` are changed paths the map has never seen, left for a caller that knows
+   * the configured test files to settle: a new spec runs itself, anything else runs all.
+   */
+  | { kind: 'exact'; files: string[]; pending?: string[] }
   /** `guessed` are the changed paths placed by name or rule rather than by imports. */
-  | { kind: 'heuristic'; files: string[]; guessed: string[] }
+  | { kind: 'heuristic'; files: string[]; guessed: string[]; pending?: string[] }
   | { kind: 'full'; reason: string }
 
 // Only comments that open a line: a `/*` or `//` inside a string (a glob, a URL)
@@ -175,10 +179,15 @@ function guessTests(path: string, testFiles: string[], rules: HeuristicRule[]) {
  * the full suite, unless the heuristic is on and can name tests for an unreached path.
  * Running too much is safe and running too little is not, so every doubt widens the run.
  */
+/**
+ * `testFiles` is every configured test file. Pass `'unknown'` where the config is not
+ * loaded (the parallel coordinator): paths nothing reaches then come back as `pending`
+ * instead of forcing the full suite.
+ */
 export function selectChanged(
   map: DependencyMap,
   changed: string[],
-  testFiles: string[] = [],
+  testFiles: string[] | 'unknown' = [],
   policy: SelectionPolicy = mapPolicy(map)
 ): ChangedSelection {
   if (!Object.keys(map.files).length) {
@@ -222,7 +231,7 @@ export function selectChanged(
     }
   }
 
-  const configured = new Set(testFiles)
+  const configured = new Set(testFiles === 'unknown' ? [] : testFiles)
   const selected = new Set<string>()
   const unreached: string[] = []
   for (const path of wanted) {
@@ -252,15 +261,40 @@ export function selectChanged(
         return !guesses.length
       })
     : unreached
-  if (unplaced.length) {
-    return {
-      kind: 'full',
-      reason:
-        `${unplaced.length} changed path(s) no test file imports (${sampleOf(unplaced)}). ` +
-        'Files loaded lazily (controllers, jobs) need a selection resolver.',
-    }
+  if (unplaced.length && testFiles === 'unknown') {
+    const guessed = unreached.filter((path) => !unplaced.includes(path))
+    return guessed.length
+      ? { kind: 'heuristic', files: [...selected], guessed, pending: unplaced }
+      : { kind: 'exact', files: [...selected], pending: unplaced }
   }
+  if (unplaced.length) return unplacedFallback(unplaced)
   return { kind: 'heuristic', files: [...selected], guessed: unreached }
+}
+
+function unplacedFallback(unplaced: string[]): ChangedSelection {
+  return {
+    kind: 'full',
+    reason:
+      `${unplaced.length} changed path(s) no test file imports (${sampleOf(unplaced)}). ` +
+      'Files loaded lazily (controllers, jobs) need a selection resolver.',
+  }
+}
+
+/**
+ * Settle a coordinator's `pending` paths in a worker, which knows the configured test
+ * files. Returns the full-suite outcome when one of them is not a test file.
+ */
+export async function settlePending(
+  config: NormalizedConfig,
+  pending: string[]
+): Promise<ChangedSelection | undefined> {
+  if (!pending.length) return undefined
+  const configured = new Set(await configuredTestFiles(config, await realpath(config.cwd)))
+  const unplaced = pending.filter((path) => !configured.has(path))
+  if (!unplaced.length) return undefined
+  const outcome = unplacedFallback(unplaced)
+  outcomes.set(config, outcome)
+  return outcome
 }
 
 function registerResolveHook(): ImportEdges | undefined {

@@ -236,3 +236,10 @@ export function plannedSuites(config: {
   const only = config.filters?.suites
   return only?.length ? names.filter((name) => only.includes(name)) : names
 }
+
+/** New failures named in an agent summary; the count says how many were left out. */
+export const MAX_NEW_FAILURES = 20
+
+export function newFailureList(entries: Pick<BaselineEntry, 'file' | 'title'>[]) {
+  return entries.slice(0, MAX_NEW_FAILURES).map(({ file, title }) => ({ file, title }))
+}

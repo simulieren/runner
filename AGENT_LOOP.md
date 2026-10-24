@@ -37,11 +37,26 @@ npx japa-parallel --workers=auto -- node --import=@poppinss/ts-exec bin/test.ts
 | `JAPA_WORKERS=4` | Same as `--workers` for `japa-parallel`; the flag wins when both are set. |
 
 `japa-agent` accepts `--cwd`, `--out`, `--cache-dir`, `--full`, `--no-prepare`,
-`--workers`, `--timeout`, `--report` and `--no-metrics`. With `--workers=auto` (the
+`--workers`, `--timeout`, `--report`, `--no-metrics` and `--verbose`. With `--workers=auto` (the
 default, or `JAPA_WORKERS`) it runs the selection in one process when its recorded test
 time would not pay for another application boot, and on a `japa-parallel` pool otherwise.
 It writes the report with `--agent-file`, so the command's configured reporters still
 run; add `--agent` to the command to also print the JSON on stdout.
+
+The command's own output (reporters, application logs, every worker's) goes to
+`<report>.log` beside the report, with `--verbose` streaming it as well. On stderr the
+wrapper prints only a digest: the outcome and counts, how the run was selected, and the
+failures to act on with their message and line. With a baseline those are just the new
+failures. A run that wrote no summary prints the last lines of the log instead.
+
+```
+japa-agent: FAILED exit=1 · 1401 tests, 3 failed (1 new, 2 known) · 6.2s
+japa-agent: selection changed: 7 of 1083 test files
+japa-agent: new failures:
+  tests/unit/lease.spec.ts:31  lease › renews before expiry
+    expected 1 to equal 2
+japa-agent: report=tests/results/agent.jsonl log=tests/results/agent.log
+```
 
 `--update-baseline` does not delete entries that stop failing. They stay in the
 file with `consecutive: 0`, so `--allow-known-failures` still recognises them if
@@ -63,6 +78,10 @@ before the first test file (config, providers, preloads, route files) form the b
 | In the boot set and reached by no test | Everything. |
 | Reached by nothing, heuristic on, and a name or rule matches | The guessed files; the summary says `"heuristic": true`. |
 | Anything else | Everything, with the reason. |
+
+On a `japa-parallel` pool the coordinator never loads the config, so it cannot tell a
+new spec from a source file nothing imports. It hands those paths to the workers, and a
+worker runs its whole shard when one of them is not a configured test file.
 
 Three config options cover what imports cannot show:
 
@@ -112,8 +131,12 @@ One JSON object per line, keyed by `event`:
 {"event":"summary","total":2,"failed":1,"passed":1,"regression":0,"skipped":0,"todo":0,"durationMs":12.4,"ok":false,"selection":{"mode":"filtered","planned":1,"skipped":12},"phases":{"bootMs":4310,"importMs":180,"testMs":12},"baseline":{"known":1,"new":0,"fixed":0}}
 ```
 
-`japa-agent` also writes `<report>.delta.json` with new and fixed failures and a
-`comparable` flag, plus `agent-metrics.jsonl` in the cache directory. Summarise
+The summary's `baseline.newFailures` names up to 20 failures the baseline does not
+know. In a parallel run the counts are summed across workers and `durationMs` is the
+slowest worker's.
+
+`japa-agent` also writes `<report>.delta.json` with the failures that are new or fixed
+since the previous report (not the baseline) and a `comparable` flag, plus `agent-metrics.jsonl` in the cache directory. Summarise
 the loop with `japa-agent --report`.
 
 With `--allow-known-failures`, a summary may include `"knownOnly": true`. The

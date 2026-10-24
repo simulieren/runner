@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 
-import { spawn } from 'node:child_process'
+import { spawn, type StdioOptions } from 'node:child_process'
+import { closeSync, openSync } from 'node:fs'
 import { appendFile, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
+import { stripVTControlCharacters } from 'node:util'
 import {
   diffReports,
+  formatDigest,
   parseAgentReport,
   type AgentSummary,
   type ParsedAgentReport,
@@ -23,8 +26,9 @@ import { plannedWorkerCount, runParallel } from '../src/parallel.js'
  * On first use it builds the selection caches, then runs only the files affected
  * by git changes and writes bounded JSON lines for the harness to read. When the
  * recorded durations of that selection outweigh another application boot, it runs
- * on a `japa-parallel` pool instead of one process. Stdout is left to the
- * application; the wrapper reports on stderr.
+ * on a `japa-parallel` pool instead of one process. The test command's output goes
+ * to a log beside the report; the wrapper prints a short digest on stderr. Pass
+ * `--verbose` to stream the command's output as well.
  */
 
 type Options = {
@@ -35,6 +39,7 @@ type Options = {
   timeout?: number
   report: boolean
   metrics: boolean
+  verbose: boolean
   cacheDir?: string
   workers?: number | 'auto'
 }
@@ -79,13 +84,20 @@ function parse(argv: string[]): { options: Options; command: string[] } {
   const separator = argv.indexOf('--')
   const head = separator < 0 ? argv : argv.slice(0, separator)
   const command = separator < 0 ? [] : argv.slice(separator + 1)
-  const options: Options = { full: false, prepare: true, report: false, metrics: true }
+  const options: Options = {
+    full: false,
+    prepare: true,
+    report: false,
+    metrics: true,
+    verbose: false,
+  }
   for (let index = 0; index < head.length; index++) {
     const arg = head[index]
     if (arg === '--full') options.full = true
     else if (arg === '--no-prepare') options.prepare = false
     else if (arg === '--report') options.report = true
     else if (arg === '--no-metrics') options.metrics = false
+    else if (arg === '--verbose') options.verbose = true
     else if (arg.startsWith('--cache-dir=')) options.cacheDir = arg.slice('--cache-dir='.length)
     else if (arg === '--cache-dir') options.cacheDir = head[++index]
     else if (arg.startsWith('--cwd=')) options.cwd = arg.slice('--cwd='.length)
@@ -108,11 +120,17 @@ function parse(argv: string[]): { options: Options; command: string[] } {
   return { options, command }
 }
 
-function run(command: string, args: string[], cwd: string, timeout?: number) {
+function run(
+  command: string,
+  args: string[],
+  cwd: string,
+  timeout: number | undefined,
+  stdio: StdioOptions
+) {
   return new Promise<number>((done, fail) => {
     const child = spawn(command, args, {
       cwd,
-      stdio: 'inherit',
+      stdio,
       detached: process.platform !== 'win32',
     })
     let timer: NodeJS.Timeout | undefined
@@ -153,7 +171,8 @@ async function runPool(
   args: string[],
   cwd: string,
   workers: number,
-  timeout?: number
+  timeout: number | undefined,
+  stdio: StdioOptions
 ) {
   process.stderr.write(`japa-agent: running on ${workers} workers\n`)
   const controller = new AbortController()
@@ -167,6 +186,7 @@ async function runPool(
       workers,
       signal: controller.signal,
       updateBaseline,
+      stdio,
     })
     for (const worker of result.workers) {
       if (worker.error) console.error(`[japa-parallel] worker ${worker.worker}: ${worker.error}`)
@@ -264,7 +284,7 @@ async function main() {
   }
   if (!command.length) {
     console.error(
-      'Usage: japa-agent [--cwd=path] [--out=path] [--full] [--no-prepare] [--workers=auto|N] -- <test command...>'
+      'Usage: japa-agent [--cwd=path] [--out=path] [--full] [--no-prepare] [--workers=auto|N] [--verbose] -- <test command...>'
     )
     return 1
   }
@@ -279,85 +299,110 @@ async function main() {
       ? [`--cache-dir=${options.cacheDir}`]
       : []
   const selectionGiven = args.some((arg) => SELECTION_FLAGS.test(arg))
-
-  if (options.prepare && !(await hasCaches(directory))) {
-    // Build both caches once. Selection flags are stripped so the index covers
-    // every file rather than only the ones a filter would have imported.
-    const prepareStarted = performance.now()
-    const prepareArgs = [
-      ...withoutSelectionFlags(args),
-      ...cacheArgs,
-      '--prepare-caches',
-      '--force-exit',
-    ]
-    const prepared = await run(executable, prepareArgs, cwd, options.timeout)
-    prepareMs = Math.round(performance.now() - prepareStarted)
-    if (prepared !== 0) {
-      console.error(`japa-agent: prepare failed with exit ${prepared}`)
-      return prepared
-    }
-  }
-
   const explicitReport = agentFile(args)
   const reportPath = explicitReport
     ? resolve(cwd, explicitReport)
     : options.out
       ? resolve(cwd, options.out)
       : join(cwd, 'node_modules/.cache/japa/agent.jsonl')
-  const previous = await readReport(reportPath)
-  // A crash before the reporter starts must not turn the previous report into
-  // this run's result.
-  await writeFile(reportPath, '').catch(() => {})
-  // --agent-file without --agent keeps the app's own reporters (result files,
-  // guards) running. Pass --agent in the command to get JSON on stdout too.
-  const runArgs = [...args, ...cacheArgs]
-  if (!explicitReport) runArgs.push(`--agent-file=${reportPath}`)
-  if (!options.full && !selectionGiven) runArgs.push('--changed=auto')
+  const logPath = options.verbose ? undefined : reportPath.replace(/\.jsonl$/, '') + '.log'
+  if (logPath) await mkdir(dirname(logPath), { recursive: true })
+  const logFd = logPath ? openSync(logPath, 'w') : undefined
+  const stdio: StdioOptions = logFd === undefined ? 'inherit' : ['inherit', logFd, logFd]
 
-  const fromEnv = process.env.JAPA_WORKERS
-  const requested = options.workers ?? (fromEnv ? workerOption(fromEnv) : 'auto')
-  const workers =
-    requested === 'auto'
-      ? await plannedWorkerCount({ args: runArgs, cwd }).catch(() => 1)
-      : requested
-
-  const runStarted = performance.now()
-  const exit =
-    workers > 1
-      ? await runPool(executable, runArgs, cwd, workers, options.timeout)
-      : await run(executable, runArgs, cwd, options.timeout)
-  const runMs = Math.round(performance.now() - runStarted)
-
-  const current = await readReport(reportPath)
-  const delta = diffReports(previous, current ?? { failures: [] })
-  const deltaPath = `${reportPath}.delta.json`
-  await writeFile(deltaPath, `${JSON.stringify(delta, null, 2)}\n`).catch(() => {})
-
-  if (options.metrics) {
-    const metric = {
-      at: new Date().toISOString(),
-      exit,
-      totalMs: Math.round(performance.now() - startedAt),
-      prepareMs,
-      runMs,
-      ...(current?.summary?.selection ? { selection: current.summary.selection } : {}),
-      ...(current?.summary?.phases ? { phases: current.summary.phases } : {}),
-      newFailures: delta.counts.new,
-      fixed: delta.counts.fixed,
+  let exit: number
+  let runMs = 0
+  try {
+    if (options.prepare && !(await hasCaches(directory))) {
+      // Build both caches once. Selection flags are stripped so the index covers
+      // every file rather than only the ones a filter would have imported.
+      const prepareStarted = performance.now()
+      const prepareArgs = [
+        ...withoutSelectionFlags(args),
+        ...cacheArgs,
+        '--prepare-caches',
+        '--force-exit',
+      ]
+      const prepared = await run(executable, prepareArgs, cwd, options.timeout, stdio)
+      prepareMs = Math.round(performance.now() - prepareStarted)
+      if (prepared !== 0) {
+        console.error(`japa-agent: prepare failed with exit ${prepared}`)
+        if (logPath) console.error(await logTail(logPath))
+        return prepared
+      }
     }
-    await mkdir(directory, { recursive: true }).catch(() => {})
-    await appendFile(metricsFile(directory), `${JSON.stringify(metric)}\n`).catch(() => {})
-  }
 
-  // The delta compares with the previous report; the baseline with known failures.
-  // Name both, or a run after a narrow one reads as a flood of new failures.
-  const baseline = current?.summary?.baseline
-  process.stderr.write(
-    `japa-agent: exit=${exit} vs-last-run: new=${delta.counts.new} fixed=${delta.counts.fixed} ` +
-      (baseline ? `vs-baseline: new=${baseline.new} known=${baseline.known} ` : '') +
-      `run=${runMs}ms report=${reportPath} delta=${deltaPath}\n`
-  )
+    const previous = await readReport(reportPath)
+    // A crash before the reporter starts must not turn the previous report into
+    // this run's result.
+    await writeFile(reportPath, '').catch(() => {})
+    // --agent-file without --agent keeps the app's own reporters (result files,
+    // guards) running. Pass --agent in the command to get JSON on stdout too.
+    const runArgs = [...args, ...cacheArgs]
+    if (!explicitReport) runArgs.push(`--agent-file=${reportPath}`)
+    if (!options.full && !selectionGiven) runArgs.push('--changed=auto')
+
+    const fromEnv = process.env.JAPA_WORKERS
+    const requested = options.workers ?? (fromEnv ? workerOption(fromEnv) : 'auto')
+    const workers =
+      requested === 'auto'
+        ? await plannedWorkerCount({ args: runArgs, cwd }).catch(() => 1)
+        : requested
+
+    const runStarted = performance.now()
+    exit =
+      workers > 1
+        ? await runPool(executable, runArgs, cwd, workers, options.timeout, stdio)
+        : await run(executable, runArgs, cwd, options.timeout, stdio)
+    runMs = Math.round(performance.now() - runStarted)
+
+    const current = await readReport(reportPath)
+    const delta = diffReports(previous, current ?? { failures: [] })
+    await writeFile(`${reportPath}.delta.json`, `${JSON.stringify(delta, null, 2)}\n`).catch(
+      () => {}
+    )
+
+    if (options.metrics) {
+      const metric = {
+        at: new Date().toISOString(),
+        exit,
+        totalMs: Math.round(performance.now() - startedAt),
+        prepareMs,
+        runMs,
+        ...(current?.summary?.selection ? { selection: current.summary.selection } : {}),
+        ...(current?.summary?.phases ? { phases: current.summary.phases } : {}),
+        newFailures: delta.counts.new,
+        fixed: delta.counts.fixed,
+      }
+      await mkdir(directory, { recursive: true }).catch(() => {})
+      await appendFile(metricsFile(directory), `${JSON.stringify(metric)}\n`).catch(() => {})
+    }
+
+    const shown = (path: string) => relative(process.cwd(), path) || path
+    const wroteSummary = Boolean(current?.summary)
+    process.stderr.write(
+      formatDigest({
+        report: current,
+        exit,
+        runMs,
+        reportPath: shown(reportPath),
+        ...(logPath ? { logPath: shown(logPath) } : {}),
+        ...(logPath && (!wroteSummary || exit !== 0) ? { logTail: await logTail(logPath) } : {}),
+      })
+    )
+  } finally {
+    if (logFd !== undefined) closeSync(logFd)
+  }
   return exit
+}
+
+const LOG_TAIL_LINES = 30
+
+/** The end of the command's output, without colour codes, for a run that failed outside its tests. */
+async function logTail(path: string) {
+  const text = await readFile(path, 'utf8').catch(() => '')
+  const lines = stripVTControlCharacters(text).trimEnd().split('\n')
+  return lines.slice(-LOG_TAIL_LINES).join('\n')
 }
 
 async function readReport(path: string): Promise<ParsedAgentReport | undefined> {

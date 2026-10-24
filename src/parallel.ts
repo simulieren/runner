@@ -7,7 +7,7 @@
  * file that was distributed with this source code.
  */
 
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
@@ -25,7 +25,12 @@ import { warn } from './helpers.js'
 import { cacheDir, dependencyFile } from './cache_paths.js'
 import debug from './debug.js'
 import { getFailedTests, cacheFailedTests } from './plugins/retry_cache.js'
-import { baselineFile, updateBaseline, type BaselineEntry } from './failure_baseline.js'
+import {
+  baselineFile,
+  newFailureList,
+  updateBaseline,
+  type BaselineEntry,
+} from './failure_baseline.js'
 import { withCacheLock, withRunLock } from './cache_lock.js'
 import {
   blendDuration,
@@ -45,7 +50,7 @@ export type ParallelOptions = {
   env?: NodeJS.ProcessEnv
   workerEnv?: (worker: number, total: number) => NodeJS.ProcessEnv
   signal?: AbortSignal
-  stdio?: 'inherit' | 'ignore'
+  stdio?: StdioOptions
   /** Merge worker failures and write the baseline from the coordinator. */
   updateBaseline?: boolean
 }
@@ -84,7 +89,7 @@ async function changedFiles(cwd: string, args: string[], options: { quiet?: bool
           .map((path) => path.trim())
           .filter(Boolean)
   const map = await readDependencyMap(dependencyFile(cwd, optionValue(args, '--cache-dir')))
-  const outcome = selectChanged(map, paths)
+  const outcome = selectChanged(map, paths, 'unknown')
   if (options.quiet) return { outcome, map }
   if (outcome.kind === 'full') {
     warn(`[japa-parallel] --changed is running the full suite: ${outcome.reason}`)
@@ -104,6 +109,8 @@ export type WorkerSelection = {
   onlyWithin: string[]
   /** The policy the selection was made with; a worker whose config differs runs its whole shard. */
   policy: SelectionPolicy
+  /** Changed paths the map never saw; a worker runs its whole shard unless all are test files. */
+  pending: string[]
 }
 
 const isStringList = (value: unknown): value is string[] =>
@@ -111,9 +118,13 @@ const isStringList = (value: unknown): value is string[] =>
 
 export function isWorkerSelection(value: unknown): value is WorkerSelection {
   if (!value || typeof value !== 'object') return false
-  const { only, onlyWithin, policy } = value as Partial<WorkerSelection>
+  const { only, onlyWithin, policy, pending } = value as Partial<WorkerSelection>
   return (
-    isStringList(only) && isStringList(onlyWithin) && Boolean(policy) && typeof policy === 'object'
+    isStringList(only) &&
+    isStringList(onlyWithin) &&
+    isStringList(pending) &&
+    Boolean(policy) &&
+    typeof policy === 'object'
   )
 }
 
@@ -167,6 +178,19 @@ function sumField(records: Record<string, unknown>[], key: string) {
   )
 }
 
+function isFailureName(value: unknown): value is { file: string; title: string } {
+  if (!value || typeof value !== 'object') return false
+  const { file, title } = value as Record<string, unknown>
+  return typeof file === 'string' && typeof title === 'string'
+}
+
+function workerFallbackReason(selections: Record<string, unknown>[]) {
+  for (const item of selections) {
+    if (typeof item.fallbackReason === 'string') return item.fallbackReason
+  }
+  return undefined
+}
+
 export async function mergeAgentReports(
   files: string[],
   target: string,
@@ -204,6 +228,10 @@ export async function mergeAgentReports(
     const baselines = summaries
       .map((item) => item.baseline)
       .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+    const fallbackReason = workerFallbackReason(selections)
+    const newFailures = baselines.flatMap((item) =>
+      Array.isArray(item.newFailures) ? item.newFailures.filter(isFailureName) : []
+    )
     const errorGroups = new Map<string, number>()
     for (const item of summaries) {
       const groups = Array.isArray(item.errorGroups) ? item.errorGroups : []
@@ -222,7 +250,11 @@ export async function mergeAgentReports(
           sumField(summaries, key),
         ])
       ),
-      durationMs: sumField(summaries, 'durationMs'),
+      // Workers run side by side, so the slowest one is the run's duration.
+      durationMs: Math.max(
+        0,
+        ...summaries.map((item) => (typeof item.durationMs === 'number' ? item.durationMs : 0))
+      ),
       // A worker that wrote no summary, or failed outside its tests, is not ok.
       ok:
         summaries.length === workers.length &&
@@ -255,6 +287,8 @@ export async function mergeAgentReports(
                 ? { fallback: true }
                 : {}),
               ...selectionDetail(outcome),
+              // A worker that settled a pending path as "not a test" fell back on its own.
+              ...(outcome?.kind !== 'full' && fallbackReason ? { fallbackReason } : {}),
             },
           }
         : {}),
@@ -275,6 +309,7 @@ export async function mergeAgentReports(
               known: sumField(baselines, 'known'),
               new: sumField(baselines, 'new'),
               fixed: sumField(baselines, 'fixed'),
+              ...(newFailures.length ? { newFailures: newFailureList(newFailures) } : {}),
             },
           }
         : {}),
@@ -407,6 +442,7 @@ async function runPool(options: ParallelOptions): Promise<ParallelResult> {
           only: outcome.files,
           onlyWithin: Object.keys(changed.map.files),
           policy: mapPolicy(changed.map),
+          pending: outcome.pending ?? [],
         }
       : undefined
   const count =

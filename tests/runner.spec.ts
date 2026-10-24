@@ -1520,6 +1520,23 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.equal(selectChanged(map, ['tests/functional/lease.spec.ts']).kind, 'heuristic')
   })
 
+  test('without the configured files, unknown paths are pending instead of a full run', async () => {
+    const { selectChanged } = await import('../src/dependencies.js')
+    const map = {
+      version: 3 as const,
+      complete: true,
+      files: { 'tests/unit/lease.spec.ts': ['app/lease.ts'] },
+      boot: ['config/app.ts'],
+      bridged: [],
+    }
+    assert.deepEqual(selectChanged(map, ['app/lease.ts', 'tests/unit/new.spec.ts'], 'unknown'), {
+      kind: 'exact',
+      files: ['tests/unit/lease.spec.ts'],
+      pending: ['tests/unit/new.spec.ts'],
+    })
+    assert.equal(selectChanged(map, ['config/app.ts'], 'unknown').kind, 'full')
+  })
+
   test('selection never omits a test that reaches a changed path', async () => {
     const { default: fc } = await import('fast-check')
     const { selectChanged } = await import('../src/dependencies.js')
@@ -1965,6 +1982,99 @@ test.describe('Automatic duration history and worker coordination', () => {
     assert.equal(cache.includes('agent-metrics.jsonl'), true)
   })
 
+  test('the japa-agent digest names new failures with their message and line', async () => {
+    const { formatDigest, parseAgentReport } = await import('../src/agent_delta.js')
+    const lines = [
+      {
+        event: 'test',
+        status: 'failed',
+        file: 'a.spec.ts',
+        group: 'g',
+        title: 'old',
+        errors: [{ message: 'known one' }],
+      },
+      {
+        event: 'test',
+        status: 'failed',
+        file: 'b.spec.ts',
+        group: 'g',
+        title: 'fresh',
+        errors: [{ message: 'expected 1 to equal 2', location: { file: 'b.spec.ts', line: 7 } }],
+      },
+      {
+        event: 'summary',
+        total: 10,
+        failed: 2,
+        selection: { mode: 'changed', planned: 2, skipped: 8 },
+        baseline: {
+          known: 1,
+          new: 1,
+          fixed: 0,
+          newFailures: [{ file: 'b.spec.ts', title: 'fresh' }],
+        },
+      },
+    ]
+    const report = parseAgentReport(lines.map((line) => JSON.stringify(line)).join('\n'))
+    const digest = formatDigest({
+      report,
+      exit: 1,
+      runMs: 1500,
+      reportPath: 'r.jsonl',
+      logPath: 'r.log',
+    })
+    assert.include(digest, 'FAILED exit=1 · 10 tests, 2 failed (1 new, 1 known) · 1.5s')
+    assert.include(digest, 'selection changed: 2 of 10 test files')
+    assert.include(digest, 'b.spec.ts:7  g › fresh\n    expected 1 to equal 2')
+    assert.notInclude(digest, 'known one')
+
+    const crashed = formatDigest({
+      report: undefined,
+      exit: 2,
+      runMs: 10,
+      reportPath: 'r.jsonl',
+      logTail: 'Error: boom',
+    })
+    assert.include(crashed, 'wrote no summary')
+    assert.include(crashed, 'Error: boom')
+  })
+
+  test('japa-agent keeps the command output in a log and prints a digest', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { readFile } = await import('node:fs/promises')
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    const { fileURLToPath } = await import('node:url')
+    const wrapper = fileURLToPath(new URL('../bin/agent.ts', import.meta.url))
+    const result = await promisify(execFile)(
+      process.execPath,
+      [
+        `--import=${loader}`,
+        wrapper,
+        '--no-prepare',
+        '--full',
+        '--workers=1',
+        '--out',
+        'report.jsonl',
+        '--',
+        process.execPath,
+        `--import=${loader}`,
+        entry,
+      ],
+      { cwd, env: { ...process.env, TEST_FAIL: '1' } }
+    ).then(
+      (value) => ({ stdout: value.stdout, stderr: value.stderr }),
+      (error: { stdout?: string; stderr?: string }) => ({
+        stdout: error.stdout ?? '',
+        stderr: error.stderr ?? '',
+      })
+    )
+    assert.equal(result.stdout, '')
+    assert.include(result.stderr, 'japa-agent: FAILED')
+    assert.include(result.stderr, 'log=report.log')
+    const log = await readFile(`${cwd}/report.log`, 'utf8')
+    assert.isAbove(log.length, 0)
+  })
+
   test('never write a baseline from a partial serial selection', async (context) => {
     const { cwd, entry, loader } = await fixture(context)
     const { readFile, writeFile } = await import('node:fs/promises')
@@ -2094,6 +2204,44 @@ test.describe('Automatic duration history and worker coordination', () => {
     const widened = await runParallel(options)
     assert.equal(widened.exitCode, 0)
     assert.lengthOf(await imported(), 6)
+  })
+
+  test('parallel --changed runs a new spec alone and settles other unknown paths in workers', async (context) => {
+    const { cwd, entry, loader } = await fixture(context)
+    const { mkdir, readFile, writeFile } = await import('node:fs/promises')
+    const { dirname } = await import('node:path')
+    const { dependencyFile } = await import('../src/cache_paths.js')
+    const { runParallel } = await import('../src/parallel.js')
+    const files = Object.fromEntries([0, 1, 2, 3, 4].map((i) => [`file${i}.spec.ts`, []]))
+    const map = { version: 3, complete: true, files, boot: [], bridged: [] }
+    await mkdir(dirname(dependencyFile(cwd)), { recursive: true })
+    await writeFile(dependencyFile(cwd), JSON.stringify(map))
+    const run = (changed: string) =>
+      runParallel({
+        command: process.execPath,
+        args: [`--import=${loader}`, entry, `--changed=${changed}`, '--agent-file=report.jsonl'],
+        cwd,
+        workers: 2,
+        historyFile: 'history.json',
+        stdio: 'ignore',
+      })
+    const imported = async () => {
+      const rows = (await Promise.all([1, 2].map((id) => json(`${cwd}/observed-${id}.json`)))) as {
+        imported: string[]
+      }[]
+      return rows.flatMap((row) => row.imported).sort()
+    }
+
+    const newSpec = await run('file5.spec.ts')
+    assert.equal(newSpec.exitCode, 0)
+    assert.deepEqual(await imported(), ['file5.spec.ts'])
+
+    const orphan = await run('app/orphan.ts')
+    assert.equal(orphan.exitCode, 0)
+    assert.lengthOf(await imported(), 6)
+    const report = await readFile(`${cwd}/report.jsonl`, 'utf8')
+    const summary = JSON.parse(report.trim().split('\n').at(-1)!)
+    assert.include(summary.selection.fallbackReason, 'app/orphan.ts')
   })
 
   test('an unhandled rejection in global setup fails the run', async (context) => {

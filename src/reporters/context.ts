@@ -38,6 +38,8 @@ export type AgentContext = {
     known: number
     new: number
     fixed?: number
+    /** The failures the baseline does not know, at most 20: what the caller acts on. */
+    newFailures?: { file: string; title: string }[]
   }
   /** Setup/teardown errors mean "known failures only" cannot turn the run green. */
   nonTestErrors?: boolean

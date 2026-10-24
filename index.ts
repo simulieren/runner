@@ -24,7 +24,13 @@ import { createTest, createTestGroup } from './src/create_test.js'
 import type { CLIArgs, Config, NormalizedConfig } from './src/types.js'
 export type { Baseline, BaselineEntry } from './src/failure_baseline.js'
 export { recordImportsFromStart } from './src/dependencies.js'
-import { changedOutcome, samePolicy, selectionDetail, selectionPolicy } from './src/dependencies.js'
+import {
+  changedOutcome,
+  samePolicy,
+  selectionDetail,
+  selectionPolicy,
+  settlePending,
+} from './src/dependencies.js'
 export type { AgentDelta, AgentTestRow, AgentSummary } from './src/agent_delta.js'
 import {
   Emitter,
@@ -283,11 +289,17 @@ export async function run() {
         )
         if (!isWorkerSelection(selection)) throw new Error('malformed selection')
         if (samePolicy(selection.policy, selectionPolicy(runnerConfig!.selection))) {
-          const { setSelectionPlan } = await import('./src/planning_state.js')
-          setSelectionPlan(runnerConfig!, {
-            only: Object.freeze(selection.only),
-            onlyWithin: Object.freeze(selection.onlyWithin),
-          })
+          const fallback = await settlePending(runnerConfig!, selection.pending)
+          if (fallback?.kind === 'full') {
+            warn(`--changed is running every file of this shard: ${fallback.reason}`)
+          } else {
+            // A pending path is an unrecorded test file, which `onlyWithin` already keeps.
+            const { setSelectionPlan } = await import('./src/planning_state.js')
+            setSelectionPlan(runnerConfig!, {
+              only: Object.freeze(selection.only),
+              onlyWithin: Object.freeze(selection.onlyWithin),
+            })
+          }
         } else {
           warn(
             '--changed is running every file of this shard: selection.heuristic or ' +
@@ -558,8 +570,14 @@ export async function run() {
      */
     let onlyKnownFailures = false
     if ((cliArgs.allowKnownFailures || cliArgs.updateBaseline) && runFailures) {
-      const { readBaseline, diffFailures, updateBaseline, baselineFile, plannedSuites } =
-        await import('./src/failure_baseline.js')
+      const {
+        readBaseline,
+        diffFailures,
+        updateBaseline,
+        baselineFile,
+        plannedSuites,
+        newFailureList,
+      } = await import('./src/failure_baseline.js')
       const file = baselineFile(runnerConfig!.cwd)
       /**
        * Never write a baseline from a partial selection: it would erase every
@@ -619,7 +637,12 @@ export async function run() {
         if (cliArgs.reporterAgent || cliArgs.agentFile) {
           const { setAgentContext } = await import('./src/reporters/context.js')
           setAgentContext(runner, {
-            baseline: { known: known.length, new: fresh.length, fixed: fixed.length },
+            baseline: {
+              known: known.length,
+              new: fresh.length,
+              fixed: fixed.length,
+              ...(fresh.length ? { newFailures: newFailureList(fresh) } : {}),
+            },
             ...(nonTestErrors ? { nonTestErrors: true } : {}),
           })
         }
